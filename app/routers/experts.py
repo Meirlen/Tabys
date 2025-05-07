@@ -174,6 +174,7 @@ def request_collaboration(
         request=request
     )
 
+
     # Отправляем уведомление эксперту в фоновом режиме
     # background_tasks.add_task(
     #     send_email,
