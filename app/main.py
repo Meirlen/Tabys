@@ -19,6 +19,8 @@ app = FastAPI(
 # app.mount("/static", StaticFiles(directory="static"), name="static")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+app.mount("/certificates", StaticFiles(directory="uploads"), name="uploads")
+app.mount("/courses", StaticFiles(directory="uploads"), name="uploads")
 
 
 # Настройка CORS
