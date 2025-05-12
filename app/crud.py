@@ -200,8 +200,8 @@ def create_vacancy(db: Session, vacancy: VacancyCreate) -> Vacancy:
         deadline=vacancy.deadline,
 
         # System fields
-        created_at=datetime.datetime.now(),
-        updated_at=datetime.datetime.now()
+        created_at=datetime.now(),
+        updated_at=datetime.now()
     )
 
     db.add(db_vacancy)
@@ -224,7 +224,7 @@ def update_vacancy(db: Session, vacancy_id: int, vacancy_update: VacancyUpdate) 
         setattr(db_vacancy, key, value)
 
     # Обновляем дату изменения
-    db_vacancy.updated_at = datetime.datetime.now()
+    db_vacancy.updated_at = datetime.now()
 
     db.commit()
     db.refresh(db_vacancy)
@@ -261,7 +261,7 @@ def create_vacancy_application(
         cover_letter=application.cover_letter,
         resume_filename=application.resume_filename,
         resume_content=resume_content,
-        created_at=datetime.datetime.now()
+        created_at=datetime.now()
     )
     db.add(db_application)
     db.commit()

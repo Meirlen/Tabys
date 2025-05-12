@@ -14,6 +14,7 @@ from app.schemas import (
 from app import crud
 from app.utils import send_email, validate_file_extension
 from app.oauth2 import get_current_user
+from datetime import datetime
 
 router = APIRouter(prefix="/api/v2/vacancies", tags=["Vacancies"])
 
