@@ -1112,179 +1112,162 @@ def get_user_enrollments_with_courses(db: Session, user_id: int, skip: int = 0, 
 
 
 from sqlalchemy.orm import Session
-from sqlalchemy import or_, and_
-from typing import List, Optional
+from sqlalchemy import desc, asc
+from typing import Optional, List
 from datetime import datetime
-from app.models import Certificate, CertificateApplication
-from app.schemas import CertificateCreate, CertificateUpdate, CertificateStatusUpdate, CertificateFilter, \
-    CertificateApplicationCreate
-from uuid import uuid4
+from app.models import Certificate, User, Course
+from app.schemas import CertificateCreate
 
 
-# Функции для сертификатов
-def get_certificates(db: Session, skip: int = 0, limit: int = 100):
-    """Получение списка всех сертификатов"""
-    return db.query(Certificate).offset(skip).limit(limit).all()
-
-
-def get_user_certificates(db: Session, user_id: int, skip: int = 0, limit: int = 100):
-    """Получение сертификатов пользователя"""
-    return db.query(Certificate).filter(Certificate.user_id == user_id).offset(skip).limit(limit).all()
-
-
-def get_certificate(db: Session, certificate_id: int):
-    """Получение сертификата по ID"""
-    return db.query(Certificate).filter(Certificate.id == certificate_id).first()
-
-
-def filter_certificates(
-        db: Session,
-        filters: CertificateFilter,
-        skip: int = 0,
-        limit: int = 100
-):
-    """Фильтрация сертификатов по различным параметрам"""
+# Получение списка всех сертификатов с возможностью фильтрации по статусу
+def get_certificates(db: Session, status: Optional[str] = None, skip: int = 0, limit: int = 100) -> List[Certificate]:
+    """
+    Получение списка всех сертификатов с возможностью фильтрации
+    """
     query = db.query(Certificate)
 
-    if filters.course_id is not None:
-        query = query.filter(Certificate.course_id == filters.course_id)
+    # Применяем фильтр по статусу, если он указан
+    if status:
+        query = query.filter(Certificate.status == status)
 
-    if filters.status is not None:
-        query = query.filter(Certificate.status == filters.status)
+    # Сортировка от новых к старым
+    query = query.order_by(desc(Certificate.created_at))
 
-    if filters.search is not None:
-        search_term = f"%{filters.search}%"
-        query = query.filter(
-            or_(
-                Certificate.title.ilike(search_term),
-                Certificate.description.ilike(search_term),
-                Certificate.issuer.ilike(search_term)
-            )
-        )
-
-    if filters.from_date and filters.to_date:
-        query = query.filter(and_(
-            Certificate.issue_date >= filters.from_date,
-            Certificate.issue_date <= filters.to_date
-        ))
-    elif filters.from_date:
-        query = query.filter(Certificate.issue_date >= filters.from_date)
-    elif filters.to_date:
-        query = query.filter(Certificate.issue_date <= filters.to_date)
-
+    # Пагинация
     return query.offset(skip).limit(limit).all()
 
 
-def create_certificate(db: Session, certificate: CertificateCreate, user_id: int):
-    """Создание нового сертификата"""
-    db_certificate = Certificate(
-        title=certificate.title,
-        description=certificate.description,
-        issuer=certificate.issuer,
-        issue_date=certificate.issue_date,
+# Получение списка сертификатов конкретного пользователя
+def get_user_certificates(db: Session, user_id: int, skip: int = 0, limit: int = 100) -> List[Certificate]:
+    """
+    Получение списка сертификатов определенного пользователя
+    """
+    return db.query(Certificate) \
+        .filter(Certificate.user_id == user_id) \
+        .order_by(desc(Certificate.created_at)) \
+        .offset(skip) \
+        .limit(limit) \
+        .all()
+
+
+# Получение конкретного сертификата по ID
+def get_certificate(db: Session, certificate_id: int) -> Optional[Certificate]:
+    """
+    Получение сертификата по ID
+    """
+    return db.query(Certificate).filter(Certificate.id == certificate_id).first()
+
+
+# Создание нового сертификата
+def create_certificate(
+        db: Session,
+        user_id: int,
+        title: str,
+        description: Optional[str] = None,
+        course_id: Optional[int] = None,
+        image_url: Optional[str] = None,
+        file_url: Optional[str] = None
+) -> Certificate:
+    """
+    Создание нового сертификата
+    """
+    # Создаем объект сертификата
+    certificate = Certificate(
         user_id=user_id,
-        course_id=certificate.course_id
+        title=title,
+        description=description,
+        course_id=course_id,
+        image_url=image_url,
+        file_url=file_url,
+        issue_date=datetime.utcnow().date(),
+        status="active"
     )
 
-    db.add(db_certificate)
+    # Добавляем в БД и коммитим
+    db.add(certificate)
     db.commit()
-    db.refresh(db_certificate)
-    return db_certificate
+    db.refresh(certificate)
+
+    return certificate
 
 
-def update_certificate(db: Session, certificate_id: int, certificate_update: CertificateUpdate):
-    """Обновление существующего сертификата"""
-    db_certificate = db.query(Certificate).filter(Certificate.id == certificate_id).first()
-    if not db_certificate:
+# Обновление существующего сертификата
+def update_certificate(
+        db: Session,
+        certificate_id: int,
+        title: Optional[str] = None,
+        description: Optional[str] = None,
+        course_id: Optional[int] = None,
+        image_url: Optional[str] = None,
+        file_url: Optional[str] = None,
+        status: Optional[str] = None
+) -> Optional[Certificate]:
+    """
+    Обновление существующего сертификата
+    """
+    # Получаем сертификат по ID
+    certificate = get_certificate(db, certificate_id)
+    if not certificate:
         return None
 
-    # Обновляем поля сертификата
-    for field, value in certificate_update.dict(exclude_unset=True).items():
-        setattr(db_certificate, field, value)
+    # Обновляем поля, если они переданы
+    if title is not None:
+        certificate.title = title
+    if description is not None:
+        certificate.description = description
+    if course_id is not None:
+        certificate.course_id = course_id
+    if image_url is not None:
+        certificate.image_url = image_url
+    if file_url is not None:
+        certificate.file_url = file_url
+    if status is not None:
+        certificate.status = status
 
-    db_certificate.updated_at = datetime.utcnow()
+    # Обновляем дату изменения
+    certificate.updated_at = datetime.utcnow()
+
+    # Коммитим изменения
     db.commit()
-    db.refresh(db_certificate)
-    return db_certificate
+    db.refresh(certificate)
+
+    return certificate
 
 
-def update_certificate_status(db: Session, certificate_id: int, status_update: CertificateStatusUpdate):
-    """Обновление статуса сертификата"""
-    db_certificate = db.query(Certificate).filter(Certificate.id == certificate_id).first()
-    if not db_certificate:
-        return None
-
-    db_certificate.status = status_update.status
-    if status_update.status_comment:
-        db_certificate.status_comment = status_update.status_comment
-
-    db.commit()
-    db.refresh(db_certificate)
-    return db_certificate
+# Отзыв сертификата (изменение статуса)
+def revoke_certificate(db: Session, certificate_id: int) -> Optional[Certificate]:
+    """
+    Отзыв сертификата (изменение статуса на 'revoked')
+    """
+    return update_certificate(db, certificate_id, status="revoked")
 
 
-def delete_certificate(db: Session, certificate_id: int):
-    """Удаление сертификата"""
-    db_certificate = db.query(Certificate).filter(Certificate.id == certificate_id).first()
-    if not db_certificate:
+# Удаление сертификата
+def delete_certificate(db: Session, certificate_id: int) -> bool:
+    """
+    Удаление сертификата
+    """
+    certificate = get_certificate(db, certificate_id)
+    if not certificate:
         return False
 
-    db.delete(db_certificate)
+    db.delete(certificate)
     db.commit()
+
     return True
 
 
-# Функции для заявок на сертификацию
-def create_certificate_application(db: Session, application: CertificateApplicationCreate, user_id: int):
-    """Создание заявки на сертификацию"""
-    db_application = CertificateApplication(
-        full_name=application.full_name,
-        email=application.email,
-        phone=application.phone,
-        message=application.message,
-        course_id=application.course_id,
-        user_id=user_id,
-        application_id=str(uuid4())
-    )
-
-    db.add(db_application)
-    db.commit()
-    db.refresh(db_application)
-    return db_application
+# Получение пользователя по ID
+def get_user(db: Session, user_id: int) -> Optional[User]:
+    """
+    Получение пользователя по ID
+    """
+    return db.query(User).filter(User.id == user_id).first()
 
 
-def get_certificate_applications(db: Session, skip: int = 0, limit: int = 100):
-    """Получение всех заявок на сертификацию"""
-    return db.query(CertificateApplication).offset(skip).limit(limit).all()
-
-
-def get_user_applications(db: Session, user_id: int, skip: int = 0, limit: int = 100):
-    """Получение заявок пользователя"""
-    return db.query(CertificateApplication).filter(
-        CertificateApplication.user_id == user_id
-    ).offset(skip).limit(limit).all()
-
-
-def get_certificate_application(db: Session, application_id: str):
-    """Получение заявки по ID"""
-    return db.query(CertificateApplication).filter(
-        CertificateApplication.application_id == application_id
-    ).first()
-
-
-def update_application_status(db: Session, application_id: str, status: str):
-    """Обновление статуса заявки"""
-    db_application = db.query(CertificateApplication).filter(
-        CertificateApplication.application_id == application_id
-    ).first()
-
-    if not db_application:
-        return None
-
-    if status not in ["pending", "approved", "rejected"]:
-        return None
-
-    db_application.status = status
-    db.commit()
-    db.refresh(db_application)
-    return db_application
+# Получение курса по ID
+def get_course(db: Session, course_id: int) -> Optional[Course]:
+    """
+    Получение курса по ID
+    """
+    return db.query(Course).filter(Course.id == course_id).first()

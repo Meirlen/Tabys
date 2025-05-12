@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from app.routers import experts,auth,vacancies,events
+from app.routers import experts,auth,vacancies,events,certificates
 from app.routers import courses_router
 from app.database import engine, Base
 import uvicorn
@@ -42,7 +42,7 @@ app.include_router(auth.router)
 app.include_router(vacancies.router)
 app.include_router(events.router)
 app.include_router(courses_router.router)
-# app.include_router(certificates.router)
+app.include_router(certificates.router)
 
 # Корневой маршрут
 @app.get("/")

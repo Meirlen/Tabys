@@ -371,59 +371,14 @@ class CourseTestResult(Base):
     test = relationship("CourseTest")
 
 
-
 class User(Base):
-    __tablename__ = "user_bot_experts"
+    __tablename__ = "user_bot_experts_"
+
     id = Column(Integer, primary_key=True, nullable=False)
-    phone_number = Column(String,  unique=True)
+    phone_number = Column(String, unique=True)
+    is_admin = Column(Boolean, default=True, nullable=False)  # Добавляем поле is_admin со значением True по умолчанию
     created_at = Column(TIMESTAMP(timezone=True),
                         nullable=False, server_default=text('now()'))
-
-
-from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey, Enum
-from sqlalchemy.orm import relationship
-from datetime import datetime
-from app.database import Base
-from uuid import uuid4
-
-
-class Certificate(Base):
-    __tablename__ = "certificates"
-
-    id = Column(Integer, primary_key=True, index=True)
-    title = Column(String, nullable=False)
-    description = Column(Text, nullable=False)
-    issuer = Column(String, nullable=False)
-    issue_date = Column(DateTime, nullable=False)
-    certificate_url = Column(String, nullable=True)
-    certificate_image = Column(String, nullable=True)
-    user_id = Column(Integer, nullable=False)
-    course_id = Column(Integer, ForeignKey("courses.id"), nullable=True)
-    status = Column(Enum("pending", "approved", "rejected", name="certificate_status"), default="pending")
-    status_comment = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    # Связь с курсом (если есть)
-    course = relationship("Course", backref="certificates")
-
-
-class CertificateApplication(Base):
-    __tablename__ = "certificate_applications"
-
-    id = Column(Integer, primary_key=True, index=True)
-    application_id = Column(String, default=lambda: str(uuid4()), unique=True)
-    full_name = Column(String, nullable=False)
-    email = Column(String, nullable=False)
-    phone = Column(String, nullable=True)
-    message = Column(Text, nullable=True)
-    user_id = Column(Integer, nullable=False)
-    course_id = Column(Integer, ForeignKey("courses.id"), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    status = Column(Enum("pending", "approved", "rejected", name="application_status"), default="pending")
-
-    # Связь с курсом (если есть)
-    course = relationship("Course", backref="certificate_applications")
 
 
 
@@ -497,3 +452,39 @@ class CollaborationRequest(Base):
     status = Column(String, default="pending")  # pending, approved, rejected
 
     expert = relationship("Expert", back_populates="collaboration_requests")
+
+
+from sqlalchemy import Column, Integer, String, Text, Boolean, ForeignKey, DateTime, Date
+from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
+from datetime import datetime
+
+from app.database import Base
+
+
+# Модель для сертификатов
+from sqlalchemy import Column, Integer, String, Text, Date, DateTime, func
+from sqlalchemy.ext.declarative import declarative_base
+from datetime import datetime
+
+class Certificate(Base):
+    __tablename__ = "certificates_14"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=False)  # Убрали ForeignKey
+    course_id = Column(Integer, nullable=True)  # Убрали ForeignKey
+
+    title = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    image_url = Column(String(255), nullable=True)  # URL или путь к изображению сертификата
+    file_url = Column(String(255), nullable=True)  # URL или путь к PDF-файлу сертификата
+
+    issue_date = Column(Date, nullable=False, default=datetime.utcnow().date)
+    status = Column(String(20), nullable=False, default="active")  # active, revoked
+
+    created_at = Column(DateTime, nullable=False, default=func.now())
+    updated_at = Column(DateTime, nullable=False, default=func.now(), onupdate=func.now())
+    # # Отношения
+    # user = relationship("User", back_populates="certificates")
+    # course = relationship("Course", back_populates="certificates", foreign_keys=[course_id])
+    #

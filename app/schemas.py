@@ -879,98 +879,49 @@ class CourseEnrollmentWithCourse(BaseModel):
 
 
 
-
-from pydantic import BaseModel, EmailStr, Field, validator
+from pydantic import BaseModel, Field
 from typing import Optional, List
-from datetime import datetime
-from enum import Enum
+from datetime import datetime, date
 
-
-class CertificationStatus(str, Enum):
-    PENDING = "pending"
-    APPROVED = "approved"
-    REJECTED = "rejected"
-
-
+# Базовая схема для сертификатов
 class CertificateBase(BaseModel):
     title: str
-    description: str
-    course_id: Optional[int] = None
-    issuer: str
-    issue_date: datetime
+    description: Optional[str] = None
+    course_id: Optional[int] = None  # Необязательное поле
 
-
+# Схема для создания сертификата
 class CertificateCreate(CertificateBase):
-    pass
-
-
-class CertificateDetail(CertificateBase):
-    id: int
-    certificate_url: Optional[str] = None
-    certificate_image: Optional[str] = None
     user_id: int
-    status: CertificationStatus
-    created_at: datetime
-    updated_at: Optional[datetime] = None
+    image_url: Optional[str] = None
+    file_url: Optional[str] = None
 
-    class Config:
-        orm_mode = True
-
-
-class CertificateList(BaseModel):
-    id: int
-    title: str
-    issuer: str
-    issue_date: datetime
-    status: CertificationStatus
-    certificate_url: Optional[str] = None
-    certificate_image: Optional[str] = None
-
-    class Config:
-        orm_mode = True
-
-
+# Схема для обновления сертификата
 class CertificateUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     course_id: Optional[int] = None
-    issuer: Optional[str] = None
-    issue_date: Optional[datetime] = None
-    certificate_url: Optional[str] = None
-    certificate_image: Optional[str] = None
+    image_url: Optional[str] = None
+    file_url: Optional[str] = None
+    status: Optional[str] = None
 
-
-class CertificateStatusUpdate(BaseModel):
-    status: CertificationStatus
-    status_comment: Optional[str] = None
-
-
-class CertificateApplicationBase(BaseModel):
-    full_name: str
-    email: EmailStr
-    phone: Optional[str] = None
-    message: Optional[str] = None
-    course_id: Optional[int] = None
-
-
-class CertificateApplicationCreate(CertificateApplicationBase):
-    pass
-
-
-class CertificateApplication(CertificateApplicationBase):
+# Схема для ответа (полная информация о сертификате)
+class Certificate(CertificateBase):
     id: int
     user_id: int
-    application_id: str
+    image_url: Optional[str] = None
+    file_url: Optional[str] = None
+    issue_date: date
+    status: str
     created_at: datetime
-    status: CertificationStatus
+    updated_at: datetime
 
     class Config:
         orm_mode = True
 
-
+# Схема для фильтрации сертификатов
 class CertificateFilter(BaseModel):
+    status: Optional[str] = None
+    user_id: Optional[int] = None
     course_id: Optional[int] = None
-    status: Optional[CertificationStatus] = None
-    search: Optional[str] = None
-    from_date: Optional[datetime] = None
-    to_date: Optional[datetime] = None
+    issue_date_from: Optional[date] = None
+    issue_date_to: Optional[date] = None
