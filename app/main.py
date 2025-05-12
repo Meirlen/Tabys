@@ -18,11 +18,14 @@ app = FastAPI(
 )
 # app.mount("/static", StaticFiles(directory="static"), name="static")
 app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+
 
 # Настройка CORS
 origins = [
     "http://localhost",
     "http://localhost:3000",
+    "http://localhost:3001",
     "http://localhost:8000",
     "https://example.com",
     # Добавьте другие разрешенные источники
