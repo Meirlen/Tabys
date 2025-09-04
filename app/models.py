@@ -62,15 +62,6 @@ class Otp(Base):
 
 
 
-class Admin(Base):
-    __tablename__ = "adminstrators_shaqyru"
-    id = Column(Integer, primary_key=True, nullable=False)
-    name = Column(String, nullable=False)
-    login = Column(String, nullable=True)
-    password = Column(String, nullable=True)
-    created_at = Column(TIMESTAMP(timezone=True),
-                            nullable=False, server_default=text('now()'))
-
 
 
 
@@ -590,3 +581,14 @@ class Certificate(Base):
     # user = relationship("User", back_populates="certificates")
     # course = relationship("Course", back_populates="certificates", foreign_keys=[course_id])
     #
+
+
+
+class Admin(Base):
+    __tablename__ = "adminstrators_shaqyru"
+    id = Column(Integer, primary_key=True, nullable=False)
+    name = Column(String, nullable=False)
+    login = Column(String, nullable=True)
+    password = Column(String, nullable=True)
+    created_at = Column(TIMESTAMP(timezone=True),
+                            nullable=False, server_default=text('now()'))
