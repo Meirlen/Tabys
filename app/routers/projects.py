@@ -980,7 +980,6 @@ def delete_gallery_image(
 def delete_participant(
         participant_id: int,
         db: Session = Depends(get_db),
-        current_user: dict = Depends(oauth2.get_current_user)
 ):
     """
     Удаление участника голосования
@@ -1010,7 +1009,6 @@ def update_participant(
         participant_id: int,
         participant_data: dict,
         db: Session = Depends(get_db),
-        current_user: dict = Depends(oauth2.get_current_user)
 ):
     """
     Обновление данных участника
