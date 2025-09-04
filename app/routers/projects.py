@@ -18,6 +18,19 @@ from datetime import datetime
 
 router = APIRouter(prefix="/api/v2/projects", tags=["Projects"])
 
+# Константа для базового URL
+BASE_URL = "https://soft09.tech"
+
+def get_full_url(path: Optional[str]) -> Optional[str]:
+    """
+    Формирует полный URL из относительного пути
+    """
+    if not path:
+        return None
+    if path.startswith('http'):
+        return path
+    return f"{BASE_URL}{path}"
+
 
 # === ПРОЕКТЫ ===
 @router.post("/", response_model=dict)
@@ -53,7 +66,7 @@ def create_project(
     }
 
 
-@router.get("/", response_model=List[dict])
+@router.get("/")
 def get_projects(
         project_type: Optional[str] = None,
         status: Optional[str] = None,
@@ -84,8 +97,8 @@ def get_projects(
             "status": project.status,
             "start_date": project.start_date,
             "end_date": project.end_date,
-            "photo_url": project.photo_url,
-            "video_url": project.video_url,
+            "photo_url": get_full_url(project.photo_url),
+            "video_url": get_full_url(project.video_url),
             "created_at": project.created_at
         }
         for project in projects
@@ -119,13 +132,13 @@ def get_project_detail(project_id: int, db: Session = Depends(get_db)):
         "status": project.status,
         "start_date": project.start_date,
         "end_date": project.end_date,
-        "photo_url": project.photo_url,
-        "video_url": project.video_url,
+        "photo_url": get_full_url(project.photo_url),
+        "video_url": get_full_url(project.video_url),
         "created_at": project.created_at,
         "gallery": [
             {
                 "id": img.id,
-                "image_url": img.image_url,
+                "image_url": get_full_url(img.image_url),
                 "description": img.description,
                 "created_at": img.created_at
             }
@@ -144,8 +157,8 @@ def get_project_detail(project_id: int, db: Session = Depends(get_db)):
                 "id": p.id,
                 "name": p.name,
                 "description": p.description,
-                "photo_url": p.photo_url,
-                "video_url": p.video_url,
+                "photo_url": get_full_url(p.photo_url),
+                "video_url": get_full_url(p.video_url),
                 "votes_count": p.votes_count,
                 "instagram_url": p.instagram_url,
                 "facebook_url": p.facebook_url,
@@ -255,7 +268,7 @@ async def upload_project_photo(
     project.photo_url = file_path
     db.commit()
 
-    return {"file_path": file_path, "message": "Фото успешно загружено"}
+    return {"file_path": get_full_url(file_path), "message": "Фото успешно загружено"}
 
 
 @router.post("/{project_id}/upload-gallery")
@@ -298,7 +311,7 @@ async def upload_gallery_image(
 
     return {
         "id": gallery_item.id,
-        "file_path": file_path,
+        "file_path": get_full_url(file_path),
         "message": "Изображение добавлено в галерею"
     }
 
@@ -382,7 +395,7 @@ async def upload_participant_photo(
     participant.photo_url = file_path
     db.commit()
 
-    return {"file_path": file_path, "message": "Фото участника загружено"}
+    return {"file_path": get_full_url(file_path), "message": "Фото участника загружено"}
 
 
 # === ГОЛОСОВАНИЕ ===
@@ -510,7 +523,7 @@ def get_voting_results(project_id: int, db: Session = Depends(get_db)):
             "position": i,
             "participant_id": participant.id,
             "participant_name": participant.name,
-            "photo_url": participant.photo_url,
+            "photo_url": get_full_url(participant.photo_url),
             "votes_count": participant.votes_count,
             "percentage": f"{percentage:.1f}%"
         })
@@ -542,7 +555,7 @@ async def submit_application(
     # Проверяем, что проект существует и это прием заявок
     project = db.query(Project).filter(
         Project.id == project_id,
-        Project.project_type == ProjectTypeEnum.APPLICATION
+        Project.project_type == "application"
     ).first()
 
     if not project:
@@ -553,7 +566,7 @@ async def submit_application(
 
     # Проверяем, что проект активен
     now = datetime.utcnow()
-    if project.status != ProjectStatusEnum.ACTIVE:
+    if project.status != "active":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Прием заявок неактивен"
@@ -646,7 +659,7 @@ def get_project_applications(
                 "applicant_name": app.applicant_name,
                 "email": app.email,
                 "description": app.description,
-                "document_url": app.document_url,
+                "document_url": get_full_url(app.document_url),
                 "status": app.status,
                 "admin_comment": app.admin_comment,
                 "created_at": app.created_at,
@@ -792,7 +805,7 @@ def get_active_voting_projects(db: Session = Depends(get_db)):
     now = datetime.utcnow()
     projects = db.query(Project).filter(
         Project.project_type == "voting", # Вместо ProjectTypeEnum.VOTING
-    Project.status == ProjectStatusEnum.ACTIVE,
+        Project.status == "active",
         Project.start_date <= now,
         Project.end_date >= now
     ).order_by(desc(Project.created_at)).all()
@@ -815,7 +828,7 @@ def get_active_voting_projects(db: Session = Depends(get_db)):
             "author": project.author,
             "start_date": project.start_date,
             "end_date": project.end_date,
-            "photo_url": project.photo_url,
+            "photo_url": get_full_url(project.photo_url),
             "participants_count": participants_count,
             "votes_count": votes_count
         })
@@ -833,8 +846,8 @@ def get_active_application_projects(db: Session = Depends(get_db)):
     """
     now = datetime.utcnow()
     projects = db.query(Project).filter(
-        Project.project_type == ProjectTypeEnum.APPLICATION,
-        Project.status == ProjectStatusEnum.ACTIVE,
+        Project.project_type == "application",
+        Project.status == "active",
         Project.start_date <= now,
         Project.end_date >= now
     ).order_by(desc(Project.created_at)).all()
@@ -853,7 +866,7 @@ def get_active_application_projects(db: Session = Depends(get_db)):
             "author": project.author,
             "start_date": project.start_date,
             "end_date": project.end_date,
-            "photo_url": project.photo_url,
+            "photo_url": get_full_url(project.photo_url),
             "applications_count": applications_count
         })
 
@@ -886,7 +899,7 @@ def get_my_votes(
             "project_title": project.title if project else "Неизвестный проект",
             "participant_id": vote.participant_id,
             "participant_name": participant.name if participant else "Неизвестный участник",
-            "participant_photo": participant.photo_url if participant else None,
+            "participant_photo": get_full_url(participant.photo_url) if participant and participant.photo_url else None,
             "voted_at": vote.created_at
         })
 
@@ -920,6 +933,7 @@ def get_my_applications(
             "applicant_name": app.applicant_name,
             "status": app.status,
             "admin_comment": app.admin_comment,
+            "document_url": get_full_url(app.document_url),
             "created_at": app.created_at,
             "reviewed_at": app.reviewed_at
         })
@@ -1082,7 +1096,7 @@ def search_projects(
                 "author": project.author,
                 "project_type": project.project_type,
                 "status": project.status,
-                "photo_url": project.photo_url,
+                "photo_url": get_full_url(project.photo_url),
                 "created_at": project.created_at
             }
             for project in projects
@@ -1109,7 +1123,7 @@ def complete_project(
             detail="Проект не найден"
         )
 
-    project.status = ProjectStatusEnum.COMPLETED
+    project.status = "completed"
     db.commit()
 
     # Если это голосовалка, сохраняем результаты
