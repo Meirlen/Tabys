@@ -38,11 +38,12 @@ origins = [
     "http://localhost:3003",
     "http://localhost:8000",
     "https://example.com",
+    "https://js-front-git-main-meirlens-projects-05b45419.vercel.app"
 ]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins="*",          # можно указать ["*"] для теста
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
