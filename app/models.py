@@ -11,9 +11,33 @@ from sqlalchemy import Column, Integer, String, JSON
 
 from sqlalchemy import Column, Integer, String, TIMESTAMP, text
 from sqlalchemy.ext.declarative import declarative_base
+import enum
 
 Base = declarative_base()
 
+
+
+
+# Enums
+class UserTypeEnum(enum.Enum):
+    INDIVIDUAL = "individual"
+    ORGANIZATION = "organization"
+
+class ServiceStatusEnum(enum.Enum):
+    ACTIVE = "active"
+    BLOCKED = "blocked"
+
+class PersonStatusEnum(enum.Enum):
+    STUDENT = "student"
+    WORKER = "worker"
+    SCHOOLER = "schooler"
+    UNEMPLOYED = "unemployed"
+
+class OrganizationTypeEnum(enum.Enum):
+    BUSINESS = "business"
+    GOVERNMENT = "government"
+    EDUCATIONAL = "educational"
+    NON_PROFIT = "non_profit"
 
 
 class Credentials(Base):
@@ -372,13 +396,91 @@ class CourseTestResult(Base):
 
 
 class User(Base):
-    __tablename__ = "user_bot_experts_"
+    __tablename__ = "users_"
 
     id = Column(Integer, primary_key=True, nullable=False)
-    phone_number = Column(String, unique=True)
-    is_admin = Column(Boolean, default=True, nullable=False)  # Добавляем поле is_admin со значением True по умолчанию
-    created_at = Column(TIMESTAMP(timezone=True),
-                        nullable=False, server_default=text('now()'))
+    phone_number = Column(String, unique=True, nullable=False)
+    user_type = Column(Enum(UserTypeEnum), nullable=False)
+    service_status = Column(Enum(ServiceStatusEnum), default=ServiceStatusEnum.ACTIVE, nullable=False)
+    is_verified = Column(Boolean, default=False)
+    created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=text('now()'))
+    updated_at = Column(TIMESTAMP(timezone=True), nullable=True)
+
+
+# Таблица для физических лиц
+class Individual(Base):
+    __tablename__ = "individuals"
+
+    id = Column(Integer, primary_key=True, nullable=False)
+    user_id = Column(Integer, nullable=False)
+    full_name = Column(String, nullable=False)
+    id_document_photo = Column(String, nullable=False)
+    selfie_with_id_photo = Column(String, nullable=False)
+    address = Column(Text, nullable=False)
+    person_status_id = Column(Integer, nullable=False)
+    created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=text('now()'))
+    updated_at = Column(TIMESTAMP(timezone=True), nullable=True)
+
+
+# Таблица для организаций
+class Organization(Base):
+    __tablename__ = "organizations"
+
+    id = Column(Integer, primary_key=True, nullable=False)
+    user_id = Column(Integer, nullable=False)
+    name = Column(String, nullable=False)
+    bin_number = Column(String, nullable=False)
+    organization_type_id = Column(Integer, nullable=False)
+    email = Column(String, nullable=True)
+    address = Column(Text, nullable=False)
+    created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=text('now()'))
+    updated_at = Column(TIMESTAMP(timezone=True), nullable=True)
+
+
+# Справочник статусов личности
+class PersonStatus(Base):
+    __tablename__ = "person_statuses"
+
+    id = Column(Integer, primary_key=True, nullable=False)
+    name_ru = Column(String, nullable=False)
+    name_kz = Column(String, nullable=False)
+    code = Column(Enum(PersonStatusEnum), nullable=False)
+    is_active = Column(Boolean, default=True)
+
+
+# Справочник типов организаций
+class OrganizationType(Base):
+    __tablename__ = "organization_types"
+
+    id = Column(Integer, primary_key=True, nullable=False)
+    name_ru = Column(String, nullable=False)
+    name_kz = Column(String, nullable=False)
+    code = Column(Enum(OrganizationTypeEnum), nullable=False)
+    is_active = Column(Boolean, default=True)
+
+
+# Таблица для OTP кодов
+class OtpCode(Base):
+    __tablename__ = "otp_codes"
+
+    id = Column(Integer, primary_key=True, nullable=False)
+    phone_number = Column(String, nullable=False)
+    code = Column(String, nullable=False)
+    is_used = Column(Boolean, default=False)
+    expires_at = Column(TIMESTAMP(timezone=True), nullable=False)
+    created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=text('now()'))
+
+
+# Таблица для сессий/токенов
+class UserSession(Base):
+    __tablename__ = "user_sessions"
+
+    id = Column(Integer, primary_key=True, nullable=False)
+    user_id = Column(Integer, nullable=False)
+    token = Column(String, nullable=False)
+    expires_at = Column(TIMESTAMP(timezone=True), nullable=False)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=text('now()'))
 
 
 

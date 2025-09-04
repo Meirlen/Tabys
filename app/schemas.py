@@ -1,8 +1,30 @@
-from datetime import datetime, date
-from typing import Optional
-from pydantic import BaseModel, Field, EmailStr
-from typing import List
+
 from typing import Dict, List, Optional, Any, Union
+from pydantic import BaseModel, validator, EmailStr
+from typing import Optional
+from datetime import datetime
+from enum import Enum
+
+
+class UserTypeEnum(str, Enum):
+    INDIVIDUAL = "individual"
+    ORGANIZATION = "organization"
+
+class ServiceStatusEnum(str, Enum):
+    ACTIVE = "active"
+    BLOCKED = "blocked"
+
+class PersonStatusEnum(str, Enum):
+    STUDENT = "student"
+    WORKER = "worker"
+    SCHOOLER = "schooler"
+    UNEMPLOYED = "unemployed"
+
+class OrganizationTypeEnum(str, Enum):
+    BUSINESS = "business"
+    GOVERNMENT = "government"
+    EDUCATIONAL = "educational"
+    NON_PROFIT = "non_profit"
 
 class TextMessageData(BaseModel):
     textMessage:str
@@ -67,23 +89,133 @@ class UserStatsResponse(BaseModel):
     stats: List[UserCountResponse]
 
 
+# Схемы для авторизации
+class LoginRequest(BaseModel):
+    phone_number: str
+
+
+
+class OtpRequest(BaseModel):
+    phone_number: str
+    code: str
+
+
+# Схемы для регистрации физических лиц
+class IndividualRegistration(BaseModel):
+    phone_number: str
+    full_name: str
+    address: str
+    person_status_id: int
+
+
+
+# Схемы для регистрации организаций
+class OrganizationRegistration(BaseModel):
+    phone_number: str
+    name: str
+    bin_number: str
+    organization_type_id: int
+    address: str
+    email: Optional[EmailStr] = None
+
+    @validator('phone_number')
+    def validate_phone(cls, v):
+        if not v.startswith('+7') and not v.startswith('8'):
+            raise ValueError('Номер телефона должен начинаться с +7 или 8')
+        return v
+
+    @validator('bin_number')
+    def validate_bin(cls, v):
+        if len(v) != 12:
+            raise ValueError('БИН должен содержать 12 цифр')
+        if not v.isdigit():
+            raise ValueError('БИН должен содержать только цифры')
+        return v
+
+
 
 
 # Pydantic model to serialize User data with additional fields
+# Схемы для ответов
 class UserResponse(BaseModel):
     id: int
-    phone_number: Optional[str]
-    user_name: Optional[str]
-    role: str
-    country: Optional[str]
-    city: Optional[str]
-    status: str
-    created_at: str
-    booking_count: int = 0
-    skyscanner_count: int = 0
+    phone_number: str
+    user_type: UserTypeEnum
+    service_status: ServiceStatusEnum
+    is_verified: bool
+    created_at: datetime
 
     class Config:
         orm_mode = True
+
+class IndividualResponse(UserResponse):
+    individual_data: Optional['IndividualData'] = None
+
+class OrganizationResponse(UserResponse):
+    organization_data: Optional['OrganizationData'] = None
+
+
+class IndividualData(BaseModel):
+    full_name: str
+    id_document_photo: str
+    selfie_with_id_photo: str
+    address: str
+    person_status_id: int
+
+    class Config:
+        orm_mode = True
+
+
+class OrganizationData(BaseModel):
+    name: str
+    bin_number: str
+    organization_type_id: int
+    email: Optional[str] = None
+    address: str
+
+    class Config:
+        orm_mode = True
+
+
+# Справочники
+class PersonStatusResponse(BaseModel):
+    id: int
+    name_ru: str
+    name_kz: str
+    code: PersonStatusEnum
+
+    class Config:
+        orm_mode = True
+
+
+class OrganizationTypeResponse(BaseModel):
+    id: int
+    name_ru: str
+    name_kz: str
+    code: OrganizationTypeEnum
+
+    class Config:
+        orm_mode = True
+
+
+
+# Токены
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user_data: UserResponse
+
+class LoginResponse(BaseModel):
+    message: str
+    otp_sent: bool = True
+
+
+
+# Обновляем forward references
+IndividualResponse.update_forward_refs()
+OrganizationResponse.update_forward_refs()
+
+
 
 class TemplateCreate(BaseModel):
     title: str
@@ -925,3 +1057,45 @@ class CertificateFilter(BaseModel):
     course_id: Optional[int] = None
     issue_date_from: Optional[date] = None
     issue_date_to: Optional[date] = None
+
+
+
+# Добавьте эти схемы в ваш файл schemas.py
+
+from pydantic import BaseModel, Field
+from datetime import datetime
+from typing import Optional
+
+# Схемы для администратора
+class AdminBase(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100, description="Имя администратора")
+    login: str = Field(..., min_length=3, max_length=50, description="Логин администратора")
+
+class AdminRegister(AdminBase):
+    password: str = Field(..., min_length=6, max_length=100, description="Пароль администратора")
+
+class AdminLogin(BaseModel):
+    login: str = Field(..., description="Логин администратора")
+    password: str = Field(..., description="Пароль администратора")
+
+class AdminResponse(AdminBase):
+    id: int
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+class AdminLoginResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    admin_data: AdminResponse
+
+class AdminChangePassword(BaseModel):
+    old_password: str = Field(..., description="Текущий пароль")
+    new_password: str = Field(..., min_length=6, max_length=100, description="Новый пароль")
+
+class AdminProfileResponse(BaseModel):
+    id: int
+    name: str
+    login: str
+    created_at: datetime
