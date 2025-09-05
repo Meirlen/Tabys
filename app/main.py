@@ -35,7 +35,6 @@ origins = [
 
 app.add_middleware(
     CORSMiddleware,
-    max_request_size=50 * 1024 * 1024,  # 50MB
 
 
     allow_origins=origins + ["*"],  # Для разработки можно оставить "*"
