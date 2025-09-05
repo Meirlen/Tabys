@@ -231,12 +231,25 @@ async def register_individual(
         person_status_id=person_status_id
     )
     db.add(individual)
+
+    # Обновляем статус верификации пользователя
+    new_user.is_verified = True
     db.commit()
+
+    # Создаем токен доступа
+    access_token = oauth2.create_access_token(data={"user_id": str(new_user.id)})
 
     return {
         "message": "Регистрация прошла успешно",
-        "user_id": new_user.id,
-        "phone_number": new_user.phone_number
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user_data": {
+            "id": new_user.id,
+            "phone_number": new_user.phone_number,
+            "user_type": new_user.user_type.value,
+            "service_status": new_user.service_status.value,
+            "is_verified": new_user.is_verified
+        }
     }
 
 # Регистрация организации
