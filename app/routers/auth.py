@@ -7,6 +7,9 @@ from datetime import datetime, timedelta
 import os
 import uuid
 from typing import List
+from PIL import Image
+import io
+
 
 router = APIRouter(prefix="/api/v2/auth", tags=["Authentication"])
 
@@ -387,6 +390,8 @@ def get_organization_types():
 
 
 # Вспомогательная функция для сохранения файлов
+
+
 async def save_uploaded_file(file: UploadFile, file_type: str) -> str:
     if not file.content_type.startswith('image/'):
         raise HTTPException(
@@ -397,12 +402,37 @@ async def save_uploaded_file(file: UploadFile, file_type: str) -> str:
     upload_dir = "uploads/documents"
     os.makedirs(upload_dir, exist_ok=True)
 
-    file_extension = file.filename.split('.')[-1]
-    unique_filename = f"{uuid.uuid4()}_{file_type}.{file_extension}"
-    file_path = os.path.join(upload_dir, unique_filename)
+    # Читаем файл
+    content = await file.read()
 
-    with open(file_path, "wb") as buffer:
-        content = await file.read()
-        buffer.write(content)
+    # Проверяем размер (макс 20MB)
+    if len(content) > 20 * 1024 * 1024:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="Файл слишком большой. Максимум 20MB"
+        )
 
-    return f"/{file_path}"
+    try:
+        # Открываем и сжимаем изображение
+        image = Image.open(io.BytesIO(content))
+
+        if image.mode in ('RGBA', 'LA', 'P'):
+            image = image.convert('RGB')
+
+        # Уменьшаем до разумного размера
+        max_size = (1920, 1920)
+        image.thumbnail(max_size, Image.Resampling.LANCZOS)
+
+        # Сохраняем
+        unique_filename = f"{uuid.uuid4()}_{file_type}.jpg"
+        file_path = os.path.join(upload_dir, unique_filename)
+
+        image.save(file_path, 'JPEG', quality=85, optimize=True)
+
+        return f"/{file_path}"
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Ошибка обработки изображения: {str(e)}"
+        )
