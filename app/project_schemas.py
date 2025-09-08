@@ -18,7 +18,9 @@ class ProjectStatus(str, Enum):
 
 class ProjectCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=255)
+    title_ru: str = Field(..., min_length=1, max_length=255)
     description: str = Field(..., min_length=1)
+    description_ru: str = Field(..., min_length=1)
     author: str = Field(..., min_length=1, max_length=255)
     project_type: str # ИЗМЕНЯЕМ тип на str
     start_date: datetime
@@ -36,7 +38,9 @@ class ProjectCreate(BaseModel):
 
 class ProjectUpdate(BaseModel):
     title: Optional[str] = Field(None, min_length=1, max_length=255)
+    title_ru: Optional[str] = Field(None, min_length=1, max_length=255)
     description: Optional[str] = Field(None, min_length=1)
+    description_ru: Optional[str] = Field(None, min_length=1)
     author: Optional[str] = Field(None, min_length=1, max_length=255)
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
@@ -48,6 +52,7 @@ class ProjectUpdate(BaseModel):
 class VotingParticipantCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
     description: Optional[str] = None
+    description_ru: Optional[str] = None
     video_url: Optional[str] = None
     instagram_url: Optional[str] = None
     facebook_url: Optional[str] = None

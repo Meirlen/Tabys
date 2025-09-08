@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
@@ -6,25 +6,25 @@ from app.database import get_db
 from app import oauth2
 from app.project_models import (
     Project, ProjectGallery, VotingParticipant, Vote,
-    ProjectApplication, VotingResults,  ProjectStatusEnum
+    ProjectApplication, VotingResults
 )
 from app.project_schemas import (
-    ProjectCreate, ProjectUpdate, VotingParticipantCreate, ProjectApplicationCreate
+    ProjectCreateMulti, ProjectUpdateMulti, VotingParticipantCreateMulti,
+    format_project_response, format_participant_response, validate_language
 )
 from typing import List, Optional
 import os
 import uuid
 from datetime import datetime
 
-router = APIRouter(prefix="/api/v2/projects", tags=["Projects"])
+router = APIRouter(prefix="/api/v2/projects", tags=["Projects Multi-language"])
 
 # Константа для базового URL
 BASE_URL = "https://soft09.tech"
 
+
 def get_full_url(path: Optional[str]) -> Optional[str]:
-    """
-    Формирует полный URL из относительного пути
-    """
+    """Формирует полный URL из относительного пути"""
     if not path:
         return None
     if path.startswith('http'):
@@ -35,25 +35,43 @@ def get_full_url(path: Optional[str]) -> Optional[str]:
 # === ПРОЕКТЫ ===
 @router.post("/", response_model=dict)
 def create_project(
-        project_data: ProjectCreate,
+        title_kz: str = Form(..., description="Заголовок на казахском"),
+        title_ru: str = Form(..., description="Заголовок на русском"),
+        description_kz: str = Form(..., description="Описание на казахском"),
+        description_ru: str = Form(..., description="Описание на русском"),
+        author: str = Form(...),
+        project_type: str = Form(..., description="voting или application"),
+        start_date: datetime = Form(...),
+        end_date: datetime = Form(...),
+        video_url: Optional[str] = Form(None),
         db: Session = Depends(get_db)
-        # Временно убираем current_user: dict = Depends(oauth2.get_current_user)
 ):
-    """
-    Создание нового проекта
-    """
+    """Создание нового проекта с мультиязычными полями"""
+
+    # Валидация типа проекта
+    if project_type not in ["voting", "application"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="project_type должен быть 'voting' или 'application'"
+        )
+
+    # Валидация дат
+    if end_date <= start_date:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Дата завершения должна быть позже даты начала"
+        )
+
     new_project = Project(
-        title=project_data.title,
-        title_ru=project_data.title_ru,
-        description=project_data.description,
-        description_ru=project_data.description_ru,
-        author=project_data.author,
-        project_type=project_data.project_type,
-        start_date=project_data.start_date,
-        end_date=project_data.end_date,
-        photo_url=project_data.photo_url,
-        video_url=project_data.video_url,
-        creator_id=None  # Временно убираем current_user.get("user_id")
+        title_kz=title_kz,
+        title_ru=title_ru,
+        description_kz=description_kz,
+        description_ru=description_ru,
+        author=author,
+        project_type=project_type,
+        start_date=start_date,
+        end_date=end_date,
+        video_url=video_url,
     )
 
     db.add(new_project)
@@ -63,27 +81,33 @@ def create_project(
     return {
         "message": "Проект успешно создан",
         "project_id": new_project.id,
-        "title": new_project.title,
+        "title_kz": new_project.title_kz,
+        "title_ru": new_project.title_ru,
         "project_type": new_project.project_type
     }
 
 
 @router.get("/")
 def get_projects(
-        project_type: Optional[str] = None,
-        status: Optional[str] = None,
-        skip: int = 0,
-        limit: int = 10,
+        lang: str = Query("ru", description="Язык ответа (kz/ru)"),
+        project_type: Optional[str] = Query(None, description="Тип проекта"),
+        status: Optional[str] = Query(None, description="Статус проекта"),
+        skip: int = Query(0, ge=0),
+        limit: int = Query(10, ge=1, le=100),
         db: Session = Depends(get_db)
 ):
-    """
-    Получение списка проектов с фильтрами
-    """
+    """Получение списка проектов с локализацией"""
+
+    # Валидация языка
+    try:
+        lang = validate_language(lang)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
     query = db.query(Project)
 
     if project_type:
         query = query.filter(Project.project_type == project_type)
-
     if status:
         query = query.filter(Project.status == status)
 
@@ -91,31 +115,29 @@ def get_projects(
 
     return [
         {
-            "id": project.id,
-            "title": project.title,
-            "title_ru": project.title_ru,
-            "description": project.description,
-            "description_ru": project.description_ru,
-            "author": project.author,
-            "project_type": project.project_type,
-            "status": project.status,
-            "start_date": project.start_date,
-            "end_date": project.end_date,
+            **format_project_response(project, lang),
             "photo_url": get_full_url(project.photo_url),
-            "video_url": get_full_url(project.video_url),
-            "created_at": project.created_at
+            "video_url": get_full_url(project.video_url)
         }
         for project in projects
     ]
 
 
-@router.get("/{project_id}", response_model=dict)
-def get_project_detail(project_id: int, db: Session = Depends(get_db)):
-    """
-    Получение детальной информации о проекте
-    """
-    project = db.query(Project).filter(Project.id == project_id).first()
+@router.get("/{project_id}")
+def get_project_detail(
+        project_id: int,
+        lang: str = Query("ru", description="Язык ответа (kz/ru)"),
+        db: Session = Depends(get_db)
+):
+    """Получение детальной информации о проекте с локализацией"""
 
+    # Валидация языка
+    try:
+        lang = validate_language(lang)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -128,19 +150,9 @@ def get_project_detail(project_id: int, db: Session = Depends(get_db)):
     ).all()
 
     result = {
-        "id": project.id,
-        "title": project.title,
-        "title_ru": project.title_ru,
-        "description": project.description,
-        "description_ru": project.description_ru,
-        "author": project.author,
-        "project_type": project.project_type,
-        "status": project.status,
-        "start_date": project.start_date,
-        "end_date": project.end_date,
+        **format_project_response(project, lang),
         "photo_url": get_full_url(project.photo_url),
         "video_url": get_full_url(project.video_url),
-        "created_at": project.created_at,
         "gallery": [
             {
                 "id": img.id,
@@ -160,18 +172,9 @@ def get_project_detail(project_id: int, db: Session = Depends(get_db)):
 
         result["participants"] = [
             {
-                "id": p.id,
-                "name": p.name,
-                "description": p.description,
-                "description_ru": p.description_ru,
+                **format_participant_response(p, lang),
                 "photo_url": get_full_url(p.photo_url),
-                "video_url": get_full_url(p.video_url),
-                "votes_count": p.votes_count,
-                "instagram_url": p.instagram_url,
-                "facebook_url": p.facebook_url,
-                "linkedin_url": p.linkedin_url,
-                "twitter_url": p.twitter_url,
-                "created_at": p.created_at
+                "video_url": get_full_url(p.video_url)
             }
             for p in participants
         ]
@@ -192,31 +195,59 @@ def get_project_detail(project_id: int, db: Session = Depends(get_db)):
     return result
 
 
-@router.put("/{project_id}", response_model=dict)
+@router.put("/{project_id}")
 def update_project(
         project_id: int,
-        project_data: ProjectUpdate,
-        db: Session = Depends(get_db),
+        title_kz: Optional[str] = Form(None),
+        title_ru: Optional[str] = Form(None),
+        description_kz: Optional[str] = Form(None),
+        description_ru: Optional[str] = Form(None),
+        author: Optional[str] = Form(None),
+        start_date: Optional[datetime] = Form(None),
+        end_date: Optional[datetime] = Form(None),
+        video_url: Optional[str] = Form(None),
+        status: Optional[str] = Form(None),
+        db: Session = Depends(get_db)
 ):
-    """
-    Обновление проекта
-    """
-    project = db.query(Project).filter(Project.id == project_id).first()
+    """Обновление проекта с поддержкой мультиязычности"""
 
+    project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Проект не найден"
         )
 
-    # Обновляем поля
-    update_data = project_data.dict(exclude_unset=True)
-    for key, value in update_data.items():
-        if hasattr(project, key):
-            setattr(project, key, value)
+    # Обновляем только переданные поля
+    if title_kz is not None:
+        project.title_kz = title_kz
+    if title_ru is not None:
+        project.title_ru = title_ru
+    if description_kz is not None:
+        project.description_kz = description_kz
+    if description_ru is not None:
+        project.description_ru = description_ru
+    if author is not None:
+        project.author = author
+    if start_date is not None:
+        project.start_date = start_date
+    if end_date is not None:
+        project.end_date = end_date
+    if video_url is not None:
+        project.video_url = video_url
+    if status is not None:
+        if status not in ["draft", "active", "completed", "cancelled"]:
+            raise HTTPException(status_code=400, detail="Неверный статус")
+        project.status = status
+
+    # Валидация дат
+    if project.end_date <= project.start_date:
+        raise HTTPException(
+            status_code=400,
+            detail="Дата завершения должна быть позже даты начала"
+        )
 
     db.commit()
-
     return {"message": "Проект успешно обновлен"}
 
 
@@ -226,9 +257,7 @@ def delete_project(
         db: Session = Depends(get_db),
         current_user: dict = Depends(oauth2.get_current_user)
 ):
-    """
-    Удаление проекта
-    """
+    """Удаление проекта"""
     project = db.query(Project).filter(Project.id == project_id).first()
 
     if not project:
@@ -251,9 +280,8 @@ async def upload_project_photo(
         file: UploadFile = File(...),
         db: Session = Depends(get_db)
 ):
-    """
-    Загрузка основного фото проекта
-    """
+    """Загрузка основного фото проекта"""
+
     if not file.content_type.startswith('image/'):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -285,9 +313,8 @@ async def upload_gallery_image(
         description: str = Form(None),
         db: Session = Depends(get_db)
 ):
-    """
-    Загрузка изображения в галерею проекта
-    """
+    """Загрузка изображения в галерею проекта"""
+
     if not file.content_type.startswith('image/'):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -328,16 +355,23 @@ async def upload_gallery_image(
 @router.post("/{project_id}/participants")
 def create_voting_participant(
         project_id: int,
-        participant_data: VotingParticipantCreate,
+        name_kz: str = Form(..., description="Имя на казахском"),
+        name_ru: str = Form(..., description="Имя на русском"),
+        description_kz: Optional[str] = Form(None, description="Описание на казахском"),
+        description_ru: Optional[str] = Form(None, description="Описание на русском"),
+        video_url: Optional[str] = Form(None),
+        instagram_url: Optional[str] = Form(None),
+        facebook_url: Optional[str] = Form(None),
+        linkedin_url: Optional[str] = Form(None),
+        twitter_url: Optional[str] = Form(None),
         db: Session = Depends(get_db)
 ):
-    """
-    Добавление участника в голосовалку
-    """
+    """Добавление участника в голосовалку с мультиязычными полями"""
+
     # Проверяем, что проект существует и это голосовалка
     project = db.query(Project).filter(
         Project.id == project_id,
-        Project.project_type == "voting"  # Вместо ProjectTypeEnum.VOTING
+        Project.project_type == "voting"
     ).first()
 
     if not project:
@@ -348,14 +382,15 @@ def create_voting_participant(
 
     participant = VotingParticipant(
         project_id=project_id,
-        name=participant_data.name,
-        description=participant_data.description,
-        description_ru=participant_data.description_ru,
-        video_url=participant_data.video_url,
-        instagram_url=participant_data.instagram_url,
-        facebook_url=participant_data.facebook_url,
-        linkedin_url=participant_data.linkedin_url,
-        twitter_url=participant_data.twitter_url
+        name_kz=name_kz,
+        name_ru=name_ru,
+        description_kz=description_kz,
+        description_ru=description_ru,
+        video_url=video_url,
+        instagram_url=instagram_url,
+        facebook_url=facebook_url,
+        linkedin_url=linkedin_url,
+        twitter_url=twitter_url
     )
 
     db.add(participant)
@@ -365,7 +400,8 @@ def create_voting_participant(
     return {
         "message": "Участник добавлен",
         "participant_id": participant.id,
-        "name": participant.name
+        "name_kz": participant.name_kz,
+        "name_ru": participant.name_ru
     }
 
 
@@ -376,9 +412,8 @@ async def upload_participant_photo(
         file: UploadFile = File(...),
         db: Session = Depends(get_db)
 ):
-    """
-    Загрузка фото участника голосования
-    """
+    """Загрузка фото участника голосования"""
+
     if not file.content_type.startswith('image/'):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -413,16 +448,14 @@ def vote_for_participant(
         project_id: int,
         vote_data: dict,  # {"participant_id": int}
         db: Session = Depends(get_db),
-        current_user = Depends(oauth2.get_current_user)
+        current_user=Depends(oauth2.get_current_user)
 ):
-    """
-    Голосование за участника
-    """
+    """Голосование за участника"""
+
     participant_id = vote_data.get("participant_id")
     user_id = current_user.id
 
     if not participant_id:
-        print("Не указан ID участника")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Не указан ID участника"
@@ -431,7 +464,7 @@ def vote_for_participant(
     # Проверяем, что проект существует и это голосовалка
     project = db.query(Project).filter(
         Project.id == project_id,
-        Project.project_type == "voting"  # Вместо ProjectTypeEnum.VOTING
+        Project.project_type == "voting"
     ).first()
 
     if not project:
@@ -495,20 +528,29 @@ def vote_for_participant(
 
     return {
         "message": "Голос принят",
-        "participant_name": participant.name,
+        "participant_name_ru": participant.name_ru,
+        "participant_name_kz": participant.name_kz,
         "current_votes": participant.votes_count
     }
 
 
 @router.get("/{project_id}/results")
-def get_voting_results(project_id: int, db: Session = Depends(get_db)):
-    """
-    Получение результатов голосования
-    """
+def get_voting_results(
+        project_id: int,
+        lang: str = Query("ru", description="Язык ответа (kz/ru)"),
+        db: Session = Depends(get_db)
+):
+    """Получение результатов голосования с локализацией"""
+
+    try:
+        lang = validate_language(lang)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
     # Проверяем, что проект существует и это голосовалка
     project = db.query(Project).filter(
         Project.id == project_id,
-        Project.project_type == "voting"  # Вместо ProjectTypeEnum.VOTING
+        Project.project_type == "voting"
     ).first()
 
     if not project:
@@ -530,7 +572,7 @@ def get_voting_results(project_id: int, db: Session = Depends(get_db)):
         results.append({
             "position": i,
             "participant_id": participant.id,
-            "participant_name": participant.name,
+            "participant_name": format_participant_response(participant, lang)["name"],
             "photo_url": get_full_url(participant.photo_url),
             "votes_count": participant.votes_count,
             "percentage": f"{percentage:.1f}%"
@@ -538,7 +580,7 @@ def get_voting_results(project_id: int, db: Session = Depends(get_db)):
 
     return {
         "project_id": project_id,
-        "project_title": project.title,
+        "project_title": format_project_response(project, lang)["title"],
         "total_votes": total_votes,
         "total_participants": len(participants),
         "results": results
@@ -557,9 +599,8 @@ async def submit_application(
         document: UploadFile = File(None),
         db: Session = Depends(get_db)
 ):
-    """
-    Подача заявки на проект
-    """
+    """Подача заявки на проект"""
+
     # Проверяем, что проект существует и это прием заявок
     project = db.query(Project).filter(
         Project.id == project_id,
@@ -623,7 +664,8 @@ async def submit_application(
     return {
         "message": "Заявка успешно подана",
         "application_id": application.id,
-        "project_title": project.title,
+        "project_title_ru": project.title_ru,
+        "project_title_kz": project.title_kz,
         "status": "pending"
     }
 
@@ -634,12 +676,17 @@ def get_project_applications(
         status_filter: Optional[str] = None,
         skip: int = 0,
         limit: int = 20,
+        lang: str = Query("ru", description="Язык ответа (kz/ru)"),
         db: Session = Depends(get_db),
         current_user: dict = Depends(oauth2.get_current_user)
 ):
-    """
-    Получение заявок по проекту (только для создателей/админов)
-    """
+    """Получение заявок по проекту (только для создателей/админов)"""
+
+    try:
+        lang = validate_language(lang)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
     # Проверяем, что проект существует
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
@@ -658,7 +705,7 @@ def get_project_applications(
     applications = query.order_by(desc(ProjectApplication.created_at)).offset(skip).limit(limit).all()
 
     return {
-        "project_title": project.title,
+        "project_title": format_project_response(project, lang)["title"],
         "total_count": query.count(),
         "applications": [
             {
@@ -685,9 +732,8 @@ def update_application_status(
         db: Session = Depends(get_db),
         current_user: dict = Depends(oauth2.get_current_user)
 ):
-    """
-    Обновление статуса заявки (только для админов)
-    """
+    """Обновление статуса заявки (только для админов)"""
+
     application = db.query(ProjectApplication).filter(
         ProjectApplication.id == application_id
     ).first()
@@ -724,10 +770,18 @@ def update_application_status(
 # === СТАТИСТИКА ===
 
 @router.get("/{project_id}/stats")
-def get_project_stats(project_id: int, db: Session = Depends(get_db)):
-    """
-    Получение статистики по проекту
-    """
+def get_project_stats(
+        project_id: int,
+        lang: str = Query("ru", description="Язык ответа (kz/ru)"),
+        db: Session = Depends(get_db)
+):
+    """Получение статистики по проекту"""
+
+    try:
+        lang = validate_language(lang)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(
@@ -737,7 +791,7 @@ def get_project_stats(project_id: int, db: Session = Depends(get_db)):
 
     stats = {
         "project_id": project_id,
-        "project_title": project.title,
+        "project_title": format_project_response(project, lang)["title"],
         "project_type": project.project_type,
         "status": project.status,
         "start_date": project.start_date,
@@ -765,7 +819,7 @@ def get_project_stats(project_id: int, db: Session = Depends(get_db)):
             "average_votes_per_participant": round(total_votes / total_participants,
                                                    2) if total_participants > 0 else 0,
             "leading_participant": {
-                "name": top_participant.name,
+                "name": format_participant_response(top_participant, lang)["name"],
                 "votes": top_participant.votes_count
             } if top_participant else None
         })
@@ -806,13 +860,20 @@ def get_project_stats(project_id: int, db: Session = Depends(get_db)):
 # === ДОПОЛНИТЕЛЬНЫЕ ЭНДПОИНТЫ ===
 
 @router.get("/active/voting")
-def get_active_voting_projects(db: Session = Depends(get_db)):
-    """
-    Получение активных проектов-голосовалок
-    """
+def get_active_voting_projects(
+        lang: str = Query("ru", description="Язык ответа (kz/ru)"),
+        db: Session = Depends(get_db)
+):
+    """Получение активных проектов-голосовалок с локализацией"""
+
+    try:
+        lang = validate_language(lang)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
     now = datetime.utcnow()
     projects = db.query(Project).filter(
-        Project.project_type == "voting", # Вместо ProjectTypeEnum.VOTING
+        Project.project_type == "voting",
         Project.status == "active",
         Project.start_date <= now,
         Project.end_date >= now
@@ -829,17 +890,13 @@ def get_active_voting_projects(db: Session = Depends(get_db)):
             Vote.project_id == project.id
         ).scalar()
 
-        result.append({
-            "id": project.id,
-            "title": project.title,
-            "description": project.description,
-            "author": project.author,
-            "start_date": project.start_date,
-            "end_date": project.end_date,
+        project_data = format_project_response(project, lang)
+        project_data.update({
             "photo_url": get_full_url(project.photo_url),
             "participants_count": participants_count,
             "votes_count": votes_count
         })
+        result.append(project_data)
 
     return {
         "count": len(result),
@@ -848,10 +905,17 @@ def get_active_voting_projects(db: Session = Depends(get_db)):
 
 
 @router.get("/active/applications")
-def get_active_application_projects(db: Session = Depends(get_db)):
-    """
-    Получение активных проектов с приемом заявок
-    """
+def get_active_application_projects(
+        lang: str = Query("ru", description="Язык ответа (kz/ru)"),
+        db: Session = Depends(get_db)
+):
+    """Получение активных проектов с приемом заявок с локализацией"""
+
+    try:
+        lang = validate_language(lang)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
     now = datetime.utcnow()
     projects = db.query(Project).filter(
         Project.project_type == "application",
@@ -867,16 +931,12 @@ def get_active_application_projects(db: Session = Depends(get_db)):
             ProjectApplication.project_id == project.id
         ).scalar()
 
-        result.append({
-            "id": project.id,
-            "title": project.title,
-            "description": project.description,
-            "author": project.author,
-            "start_date": project.start_date,
-            "end_date": project.end_date,
+        project_data = format_project_response(project, lang)
+        project_data.update({
             "photo_url": get_full_url(project.photo_url),
             "applications_count": applications_count
         })
+        result.append(project_data)
 
     return {
         "count": len(result),
@@ -886,12 +946,17 @@ def get_active_application_projects(db: Session = Depends(get_db)):
 
 @router.get("/my-votes")
 def get_my_votes(
+        lang: str = Query("ru", description="Язык ответа (kz/ru)"),
         db: Session = Depends(get_db),
         current_user: dict = Depends(oauth2.get_current_user)
 ):
-    """
-    Получение голосов текущего пользователя
-    """
+    """Получение голосов текущего пользователя с локализацией"""
+
+    try:
+        lang = validate_language(lang)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
     user_id = current_user.get("user_id")
 
     votes = db.query(Vote).filter(Vote.user_id == user_id).order_by(desc(Vote.created_at)).all()
@@ -904,9 +969,10 @@ def get_my_votes(
         result.append({
             "vote_id": vote.id,
             "project_id": vote.project_id,
-            "project_title": project.title if project else "Неизвестный проект",
+            "project_title": format_project_response(project, lang)["title"] if project else "Неизвестный проект",
             "participant_id": vote.participant_id,
-            "participant_name": participant.name if participant else "Неизвестный участник",
+            "participant_name": format_participant_response(participant, lang)[
+                "name"] if participant else "Неизвестный участник",
             "participant_photo": get_full_url(participant.photo_url) if participant and participant.photo_url else None,
             "voted_at": vote.created_at
         })
@@ -920,11 +986,16 @@ def get_my_votes(
 @router.get("/my-applications")
 def get_my_applications(
         phone_number: str,
+        lang: str = Query("ru", description="Язык ответа (kz/ru)"),
         db: Session = Depends(get_db)
 ):
-    """
-    Получение заявок пользователя по номеру телефона
-    """
+    """Получение заявок пользователя по номеру телефона с локализацией"""
+
+    try:
+        lang = validate_language(lang)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
     applications = db.query(ProjectApplication).filter(
         ProjectApplication.phone_number == phone_number
     ).order_by(desc(ProjectApplication.created_at)).all()
@@ -936,7 +1007,7 @@ def get_my_applications(
         result.append({
             "application_id": app.id,
             "project_id": app.project_id,
-            "project_title": project.title if project else "Неизвестный проект",
+            "project_title": format_project_response(project, lang)["title"] if project else "Неизвестный проект",
             "description": app.description,
             "applicant_name": app.applicant_name,
             "status": app.status,
@@ -960,9 +1031,8 @@ def delete_gallery_image(
         db: Session = Depends(get_db),
         current_user: dict = Depends(oauth2.get_current_user)
 ):
-    """
-    Удаление изображения из галереи
-    """
+    """Удаление изображения из галереи"""
+
     image = db.query(ProjectGallery).filter(ProjectGallery.id == image_id).first()
 
     if not image:
@@ -989,9 +1059,8 @@ def delete_participant(
         participant_id: int,
         db: Session = Depends(get_db),
 ):
-    """
-    Удаление участника голосования
-    """
+    """Удаление участника голосования"""
+
     participant = db.query(VotingParticipant).filter(
         VotingParticipant.id == participant_id
     ).first()
@@ -1015,12 +1084,19 @@ def delete_participant(
 @router.put("/participants/{participant_id}")
 def update_participant(
         participant_id: int,
-        participant_data: dict,
+        name_kz: Optional[str] = Form(None),
+        name_ru: Optional[str] = Form(None),
+        description_kz: Optional[str] = Form(None),
+        description_ru: Optional[str] = Form(None),
+        video_url: Optional[str] = Form(None),
+        instagram_url: Optional[str] = Form(None),
+        facebook_url: Optional[str] = Form(None),
+        linkedin_url: Optional[str] = Form(None),
+        twitter_url: Optional[str] = Form(None),
         db: Session = Depends(get_db),
 ):
-    """
-    Обновление данных участника
-    """
+    """Обновление данных участника с поддержкой мультиязычности"""
+
     participant = db.query(VotingParticipant).filter(
         VotingParticipant.id == participant_id
     ).first()
@@ -1032,12 +1108,24 @@ def update_participant(
         )
 
     # Обновляем поля
-    allowed_fields = ['name', 'description', 'video_url', 'instagram_url', 'facebook_url', 'linkedin_url',
-                      'twitter_url']
-
-    for field in allowed_fields:
-        if field in participant_data:
-            setattr(participant, field, participant_data[field])
+    if name_kz is not None:
+        participant.name_kz = name_kz
+    if name_ru is not None:
+        participant.name_ru = name_ru
+    if description_kz is not None:
+        participant.description_kz = description_kz
+    if description_ru is not None:
+        participant.description_ru = description_ru
+    if video_url is not None:
+        participant.video_url = video_url
+    if instagram_url is not None:
+        participant.instagram_url = instagram_url
+    if facebook_url is not None:
+        participant.facebook_url = facebook_url
+    if linkedin_url is not None:
+        participant.linkedin_url = linkedin_url
+    if twitter_url is not None:
+        participant.twitter_url = twitter_url
 
     db.commit()
 
@@ -1047,9 +1135,7 @@ def update_participant(
 # === ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ===
 
 async def save_uploaded_file(file: UploadFile, folder: str) -> str:
-    """
-    Сохранение загруженного файла
-    """
+    """Сохранение загруженного файла"""
     upload_dir = f"uploads/{folder}"
     os.makedirs(upload_dir, exist_ok=True)
 
@@ -1068,23 +1154,33 @@ async def save_uploaded_file(file: UploadFile, folder: str) -> str:
 
 @router.get("/search")
 def search_projects(
-        q: str,
-        project_type: Optional[str] = None,
-        status: Optional[str] = None,
-        skip: int = 0,
-        limit: int = 20,
+        q: str = Query(..., min_length=1, description="Поисковый запрос"),
+        lang: str = Query("ru", description="Язык ответа (kz/ru)"),
+        project_type: Optional[str] = Query(None),
+        status: Optional[str] = Query(None),
+        skip: int = Query(0, ge=0),
+        limit: int = Query(20, ge=1, le=100),
         db: Session = Depends(get_db)
 ):
-    """
-    Поиск проектов по названию и описанию
-    """
-    query = db.query(Project).filter(
-        Project.title.ilike(f"%{q}%") | Project.description.ilike(f"%{q}%")
-    )
+    """Поиск проектов по названию и описанию с поддержкой мультиязычности"""
+
+    try:
+        lang = validate_language(lang)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # Поиск по мультиязычным полям
+    if lang == "kz":
+        query = db.query(Project).filter(
+            Project.title_kz.ilike(f"%{q}%") | Project.description_kz.ilike(f"%{q}%")
+        )
+    else:
+        query = db.query(Project).filter(
+            Project.title_ru.ilike(f"%{q}%") | Project.description_ru.ilike(f"%{q}%")
+        )
 
     if project_type:
         query = query.filter(Project.project_type == project_type)
-
     if status:
         query = query.filter(Project.status == status)
 
@@ -1092,18 +1188,16 @@ def search_projects(
 
     return {
         "query": q,
+        "language": lang,
         "count": len(projects),
         "projects": [
             {
-                "id": project.id,
-                "title": project.title,
-                "description": project.description[:200] + "..." if len(
-                    project.description) > 200 else project.description,
-                "author": project.author,
-                "project_type": project.project_type,
-                "status": project.status,
+                **format_project_response(project, lang),
                 "photo_url": get_full_url(project.photo_url),
-                "created_at": project.created_at
+                # Обрезаем описание для краткости
+                "description": format_project_response(project, lang)["description"][:200] + "..."
+                if len(format_project_response(project, lang)["description"]) > 200
+                else format_project_response(project, lang)["description"]
             }
             for project in projects
         ]
@@ -1118,9 +1212,8 @@ def complete_project(
         db: Session = Depends(get_db),
         current_user: dict = Depends(oauth2.get_current_user)
 ):
-    """
-    Завершение проекта
-    """
+    """Завершение проекта с сохранением мультиязычных результатов"""
+
     project = db.query(Project).filter(Project.id == project_id).first()
 
     if not project:
@@ -1132,7 +1225,7 @@ def complete_project(
     project.status = "completed"
     db.commit()
 
-    # Если это голосовалка, сохраняем результаты
+    # Если это голосовалка, сохраняем результаты с мультиязычными именами
     if project.project_type == "voting":
         participants = db.query(VotingParticipant).filter(
             VotingParticipant.project_id == project_id
@@ -1143,14 +1236,15 @@ def complete_project(
         # Очищаем старые результаты
         db.query(VotingResults).filter(VotingResults.project_id == project_id).delete()
 
-        # Сохраняем новые результаты
+        # Сохраняем новые результаты с мультиязычными именами
         for i, participant in enumerate(participants, 1):
             percentage = (participant.votes_count / total_votes * 100) if total_votes > 0 else 0
 
             result = VotingResults(
                 project_id=project_id,
                 participant_id=participant.id,
-                participant_name=participant.name,
+                participant_name_kz=participant.name_kz,
+                participant_name_ru=participant.name_ru,
                 votes_count=participant.votes_count,
                 percentage=f"{percentage:.1f}%",
                 position=i
