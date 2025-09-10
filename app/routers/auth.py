@@ -6,12 +6,18 @@ from app import models, schemas, oauth2
 from datetime import datetime, timedelta
 import os
 import uuid
+import random
 from typing import List
 from PIL import Image
 import io
-
+from app.routers.whatsapp_sender import send_whatsapp_message
 
 router = APIRouter(prefix="/api/v2/auth", tags=["Authentication"])
+
+
+def generate_otp_code() -> str:
+    """Генерирует случайный 6-значный OTP код"""
+    return str(random.randint(100000, 999999))
 
 
 # Проверка существования профиля
@@ -29,7 +35,7 @@ def check_profile(login_data: schemas.LoginRequest, db: Session = Depends(get_db
 
     if user:
         # Пользователь найден - отправляем OTP для авторизации
-        otp_code = "950826"
+        otp_code = generate_otp_code()
 
         # Деактивируем старые коды для этого номера
         db.query(models.OtpCode).filter(
@@ -50,6 +56,8 @@ def check_profile(login_data: schemas.LoginRequest, db: Session = Depends(get_db
 
         # TODO: Отправка в WhatsApp
         # send_whatsapp_message(phone_number, f"Ваш код: {otp_code}")
+        send_whatsapp_message(phone_number,otp_code)
+        print(f"DEBUG: OTP код для {phone_number}: {otp_code}")  # Временно для тестирования
 
         return {
             "profile_exists": True,
@@ -72,8 +80,8 @@ def send_otp(login_data: schemas.LoginRequest, db: Session = Depends(get_db)):
     """
     phone_number = login_data.phone_number
 
-    # Генерируем OTP код (пока что статический 950826)
-    otp_code = "950826"
+    # Генерируем случайный OTP код
+    otp_code = generate_otp_code()
 
     # Деактивируем старые коды для этого номера
     db.query(models.OtpCode).filter(
@@ -93,7 +101,8 @@ def send_otp(login_data: schemas.LoginRequest, db: Session = Depends(get_db)):
     db.commit()
 
     # TODO: Здесь будет отправка в WhatsApp
-    # send_whatsapp_message(phone_number, f"Ваш код: {otp_code}")
+    send_whatsapp_message(phone_number, f"Ваш код: {otp_code}")
+    print(f"DEBUG: OTP код для {phone_number}: {otp_code}")  # Временно для тестирования
 
     return schemas.LoginResponse(
         message="OTP код отправлен на ваш номер в WhatsApp",
@@ -107,14 +116,30 @@ def verify_otp(otp_data: schemas.OtpRequest, db: Session = Depends(get_db)):
     """
     Проверяет OTP код и авторизует пользователя
     """
-    otp_code = "950826"
+    # Ищем активный OTP код для данного номера
+    otp_record = db.query(models.OtpCode).filter(
+        models.OtpCode.phone_number == otp_data.phone_number,
+        models.OtpCode.is_used == False,
+        models.OtpCode.expires_at > datetime.utcnow()
+    ).first()
 
-    # Проверяем OTP код
-    if otp_data.code != otp_code:
+    # Проверяем существование и валидность OTP
+    if not otp_record:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="OTP код не найден или истек срок действия"
+        )
+
+    # Проверяем правильность кода
+    if otp_record.code != otp_data.code:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Неверный OTP код"
         )
+
+    # Помечаем код как использованный
+    otp_record.is_used = True
+    db.commit()
 
     # Ищем пользователя
     user = db.query(models.User).filter(
