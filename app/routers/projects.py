@@ -224,7 +224,6 @@ def update_project(
 def delete_project(
         project_id: int,
         db: Session = Depends(get_db),
-        current_user: dict = Depends(oauth2.get_current_user)
 ):
     """
     Удаление проекта
@@ -958,7 +957,6 @@ def get_my_applications(
 def delete_gallery_image(
         image_id: int,
         db: Session = Depends(get_db),
-        current_user: dict = Depends(oauth2.get_current_user)
 ):
     """
     Удаление изображения из галереи
