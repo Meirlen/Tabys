@@ -131,7 +131,7 @@ def verify_otp(otp_data: schemas.OtpRequest, db: Session = Depends(get_db)):
         )
 
     # Проверяем правильность кода
-    if otp_record.code != otp_data.code or otp_record.code != "950826":
+    if otp_record.code != otp_data.code:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Неверный OTP код"
@@ -248,8 +248,8 @@ async def register_individual(
     # Загружаем фото удостоверения
     # id_doc_path = await save_uploaded_file(id_document_photo, "id_document")
     # selfie_path = await save_uploaded_file(selfie_with_id_photo, "selfie")
-    id_doc_path = "not"
-    selfie_path= "not"
+    id_doc_path =""
+    selfie_path =""
     # Создаем запись физического лица
     individual = models.Individual(
         user_id=new_user.id,
@@ -337,7 +337,6 @@ def register_organization(
 #     return statuses
 #
 
-
 # Получение справочников (МОКИ)
 @router.get("/person-statuses")
 def get_person_statuses():
@@ -368,8 +367,33 @@ def get_person_statuses():
             "name_ru": "Безработный",
             "name_kz": "Жұмыссыз",
             "code": "unemployed"
+        },
+        {
+            "id": 5,
+            "name_ru": "Предприниматель",
+            "name_kz": "Кәсіпкер",
+            "code": "entrepreneur"
+        },
+        {
+            "id": 6,
+            "name_ru": "Пенсионер",
+            "name_kz": "Зейнеткер",
+            "code": "retired"
+        },
+        {
+            "id": 7,
+            "name_ru": "Домохозяйка",
+            "name_kz": "Үй шаруасындағы",
+            "code": "housewife"
+        },
+        {
+            "id": 8,
+            "name_ru": "Другое",
+            "name_kz": "Басқа",
+            "code": "other"
         }
     ]
+
 
 # @router.get("/organization-types", response_model=List[schemas.OrganizationTypeResponse])
 # def get_organization_types(db: Session = Depends(get_db)):
