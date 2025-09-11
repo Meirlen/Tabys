@@ -1162,3 +1162,343 @@ def complete_project(
         "project_id": project_id,
         "final_status": "completed"
     }
+
+
+# Добавьте эти роуты в ваш файл project_routes.py
+
+# === УПРАВЛЕНИЕ ГОЛОСАМИ ===
+
+@router.post("/{project_id}/participants/{participant_id}/boost-votes")
+def boost_participant_votes(
+        project_id: int,
+        participant_id: int,
+        boost_data: dict,  # {"votes_to_add": int}
+        db: Session = Depends(get_db),
+        # current_user: dict = Depends(oauth2.get_current_user)  # Раскомментировать для проверки прав
+):
+    """
+    Увеличение количества голосов у участника (для тестирования)
+    """
+    votes_to_add = boost_data.get("votes_to_add", 0)
+
+    if votes_to_add <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Количество голосов должно быть больше 0"
+        )
+
+    # Проверяем существование участника
+    participant = db.query(VotingParticipant).filter(
+        VotingParticipant.id == participant_id,
+        VotingParticipant.project_id == project_id
+    ).first()
+
+    if not participant:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Участник не найден"
+        )
+
+    # Увеличиваем счетчик
+    old_votes = participant.votes_count
+    participant.votes_count += votes_to_add
+
+    db.commit()
+
+    return {
+        "message": f"Количество голосов увеличено на {votes_to_add}",
+        "participant_id": participant_id,
+        "participant_name": participant.name,
+        "old_votes": old_votes,
+        "new_votes": participant.votes_count,
+        "added_votes": votes_to_add
+    }
+
+
+@router.put("/{project_id}/participants/{participant_id}/set-votes")
+def set_participant_votes(
+        project_id: int,
+        participant_id: int,
+        votes_data: dict,  # {"votes_count": int}
+        db: Session = Depends(get_db),
+        # current_user: dict = Depends(oauth2.get_current_user)
+):
+    """
+    Установка конкретного количества голосов у участника
+    """
+    new_votes_count = votes_data.get("votes_count", 0)
+
+    if new_votes_count < 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Количество голосов не может быть отрицательным"
+        )
+
+    participant = db.query(VotingParticipant).filter(
+        VotingParticipant.id == participant_id,
+        VotingParticipant.project_id == project_id
+    ).first()
+
+    if not participant:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Участник не найден"
+        )
+
+    old_votes = participant.votes_count
+    participant.votes_count = new_votes_count
+
+    db.commit()
+
+    return {
+        "message": f"Количество голосов установлено: {new_votes_count}",
+        "participant_id": participant_id,
+        "participant_name": participant.name,
+        "old_votes": old_votes,
+        "new_votes": new_votes_count
+    }
+
+
+@router.post("/{project_id}/boost-all-votes")
+def boost_all_participants_votes(
+        project_id: int,
+        boost_data: dict,  # {"votes_to_add": int}
+        db: Session = Depends(get_db),
+        # current_user: dict = Depends(oauth2.get_current_user)
+):
+    """
+    Увеличение голосов у всех участников проекта
+    """
+    votes_to_add = boost_data.get("votes_to_add", 0)
+
+    if votes_to_add <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Количество голосов должно быть больше 0"
+        )
+
+    # Проверяем существование проекта
+    project = db.query(Project).filter(
+        Project.id == project_id,
+        Project.project_type == "voting"
+    ).first()
+
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Проект-голосовалка не найден"
+        )
+
+    # Получаем всех участников
+    participants = db.query(VotingParticipant).filter(
+        VotingParticipant.project_id == project_id
+    ).all()
+
+    if not participants:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Участники не найдены"
+        )
+
+    updated_participants = []
+
+    # Увеличиваем голоса у всех участников
+    for participant in participants:
+        old_votes = participant.votes_count
+        participant.votes_count += votes_to_add
+
+        updated_participants.append({
+            "id": participant.id,
+            "name": participant.name,
+            "old_votes": old_votes,
+            "new_votes": participant.votes_count
+        })
+
+    db.commit()
+
+    return {
+        "message": f"Голоса увеличены на {votes_to_add} у всех участников",
+        "project_id": project_id,
+        "participants_updated": len(updated_participants),
+        "votes_added_per_participant": votes_to_add,
+        "participants": updated_participants
+    }
+
+
+@router.post("/{project_id}/distribute-random-votes")
+def distribute_random_votes(
+        project_id: int,
+        votes_data: dict,  # {"total_votes": int}
+        db: Session = Depends(get_db),
+        # current_user: dict = Depends(oauth2.get_current_user)
+):
+    """
+    Случайное распределение голосов между участниками
+    """
+    import random
+
+    total_votes = votes_data.get("total_votes", 0)
+
+    if total_votes <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Общее количество голосов должно быть больше 0"
+        )
+
+    # Получаем участников
+    participants = db.query(VotingParticipant).filter(
+        VotingParticipant.project_id == project_id
+    ).all()
+
+    if not participants:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Участники не найдены"
+        )
+
+    # Случайно распределяем голоса
+    participants_count = len(participants)
+    votes_distribution = []
+
+    # Генерируем случайные веса для каждого участника
+    weights = [random.randint(1, 10) for _ in range(participants_count)]
+    total_weight = sum(weights)
+
+    # Распределяем голоса пропорционально весам
+    remaining_votes = total_votes
+    for i, participant in enumerate(participants):
+        if i == participants_count - 1:  # Последнему участнику отдаем остаток
+            votes_for_participant = remaining_votes
+        else:
+            votes_for_participant = int((weights[i] / total_weight) * total_votes)
+            remaining_votes -= votes_for_participant
+
+        old_votes = participant.votes_count
+        participant.votes_count += votes_for_participant
+
+        votes_distribution.append({
+            "id": participant.id,
+            "name": participant.name,
+            "old_votes": old_votes,
+            "added_votes": votes_for_participant,
+            "new_votes": participant.votes_count
+        })
+
+    db.commit()
+
+    return {
+        "message": f"Распределено {total_votes} голосов между {participants_count} участниками",
+        "project_id": project_id,
+        "total_votes_distributed": total_votes,
+        "participants": votes_distribution
+    }
+
+
+@router.post("/{project_id}/reset-votes")
+def reset_all_votes(
+        project_id: int,
+        db: Session = Depends(get_db),
+        # current_user: dict = Depends(oauth2.get_current_user)
+):
+    """
+    Сброс всех голосов в проекте
+    """
+    # Проверяем проект
+    project = db.query(Project).filter(
+        Project.id == project_id,
+        Project.project_type == "voting"
+    ).first()
+
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Проект-голосовалка не найден"
+        )
+
+    # Сбрасываем голоса у участников
+    participants = db.query(VotingParticipant).filter(
+        VotingParticipant.project_id == project_id
+    ).all()
+
+    reset_participants = []
+    for participant in participants:
+        old_votes = participant.votes_count
+        participant.votes_count = 0
+        reset_participants.append({
+            "id": participant.id,
+            "name": participant.name,
+            "old_votes": old_votes
+        })
+
+    # Удаляем записи о голосах из таблицы Vote
+    votes_deleted = db.query(Vote).filter(Vote.project_id == project_id).delete()
+
+    db.commit()
+
+    return {
+        "message": "Все голоса сброшены",
+        "project_id": project_id,
+        "participants_reset": len(reset_participants),
+        "vote_records_deleted": votes_deleted,
+        "participants": reset_participants
+    }
+
+
+@router.post("/{project_id}/participants/{participant_id}/create-fake-votes")
+def create_fake_votes(
+        project_id: int,
+        participant_id: int,
+        votes_data: dict,  # {"votes_count": int}
+        db: Session = Depends(get_db),
+        # current_user: dict = Depends(oauth2.get_current_user)
+):
+    """
+    Создание фейковых записей голосов (с записями в таблице Vote)
+    """
+    votes_count = votes_data.get("votes_count", 0)
+
+    if votes_count <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Количество голосов должно быть больше 0"
+        )
+
+    # Проверяем участника
+    participant = db.query(VotingParticipant).filter(
+        VotingParticipant.id == participant_id,
+        VotingParticipant.project_id == project_id
+    ).first()
+
+    if not participant:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Участник не найден"
+        )
+
+    # Создаем фейковые голоса
+    fake_votes = []
+    for i in range(votes_count):
+        fake_vote = Vote(
+            project_id=project_id,
+            participant_id=participant_id,
+            user_id=9999 + i,  # Фейковые ID пользователей
+            user_phone=f"+7700000{1000 + i}",  # Фейковые номера
+            created_at=datetime.utcnow()
+        )
+        db.add(fake_vote)
+        fake_votes.append(fake_vote)
+
+    # Увеличиваем счетчик у участника
+    old_votes = participant.votes_count
+    participant.votes_count += votes_count
+
+    db.commit()
+
+    return {
+        "message": f"Создано {votes_count} фейковых голосов",
+        "participant_id": participant_id,
+        "participant_name": participant.name,
+        "old_votes": old_votes,
+        "new_votes": participant.votes_count,
+        "fake_votes_created": len(fake_votes)
+    }
