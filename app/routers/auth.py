@@ -207,8 +207,8 @@ async def register_individual(
         full_name: str = Form(...),
         address: str = Form(...),
         person_status_id: int = Form(...),
-        id_document_photo: UploadFile = File(...),
-        selfie_with_id_photo: UploadFile = File(...),
+        # id_document_photo: UploadFile = File(...),
+        # selfie_with_id_photo: UploadFile = File(...),
         db: Session = Depends(get_db)
 ):
     """
@@ -246,9 +246,10 @@ async def register_individual(
         db.refresh(new_user)
 
     # Загружаем фото удостоверения
-    id_doc_path = await save_uploaded_file(id_document_photo, "id_document")
-    selfie_path = await save_uploaded_file(selfie_with_id_photo, "selfie")
-
+    # id_doc_path = await save_uploaded_file(id_document_photo, "id_document")
+    # selfie_path = await save_uploaded_file(selfie_with_id_photo, "selfie")
+    id_doc_path = "not"
+    selfie_path= "not"
     # Создаем запись физического лица
     individual = models.Individual(
         user_id=new_user.id,
