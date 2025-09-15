@@ -90,7 +90,7 @@ from app.database import Base
 
 
 class Vacancy(Base):
-    __tablename__ = "vacancies_"
+    __tablename__ = "vacancies_new"
 
     id = Column(Integer, primary_key=True, index=True)
     # Multilingual fields
@@ -106,7 +106,7 @@ class Vacancy(Base):
     # Common fields
     employment_type = Column(String, nullable=True)
     work_type = Column(String, nullable=True)
-    salary = Column(String, nullable=True)
+    salary = Column(Integer, nullable=True)
     contact_email = Column(String, nullable=True)
     is_active = Column(Boolean, default=True)
     deadline = Column(Date, nullable=True)
@@ -114,28 +114,20 @@ class Vacancy(Base):
     updated_at = Column(DateTime, nullable=True)
 
     # Отношение к откликам на вакансию
-    applications = relationship("VacancyApplication", back_populates="vacancy", cascade="all, delete-orphan")
 
 
 
 class VacancyApplication(Base):
-    __tablename__ = "vacancy_applications_1"
+    __tablename__ = "vacancy_applications_v2"
 
     id = Column(Integer, primary_key=True, index=True)
-    vacancy_id = Column(Integer, ForeignKey("vacancies_.id"), nullable=False)
-    first_name = Column(String, nullable=False)
-    last_name = Column(String, nullable=False)
-    email = Column(String, nullable=False)
-    phone = Column(String, nullable=True)
-    cover_letter = Column(Text, nullable=True)
-    resume_filename = Column(String, nullable=False)
-    resume_content = Column(LargeBinary, nullable=False)
+    vacancy_id = Column(Integer, ForeignKey("vacancies_new.id"), nullable=False)
+    user_id = Column(Integer, nullable=False)  # ID пользователя, который подает отклик
+    resume_id = Column(Integer, ForeignKey("resumes_.id"), nullable=False)  # ID выбранного резюме
+    cover_letter = Column(Text, nullable=True)  # Сопроводительное письмо (опционально)
+    status = Column(String, default="new")  # new, reviewed, accepted, rejected
     created_at = Column(DateTime, nullable=False)
-    # Add status field with default value
-    status = Column(String, default="new")
-
-    # Отношение к вакансии
-    vacancy = relationship("Vacancy", back_populates="applications")
+    updated_at = Column(DateTime, nullable=True)
 
 
 from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Text, Boolean, Enum

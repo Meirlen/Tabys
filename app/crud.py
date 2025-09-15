@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, and_
-from . import models, schemas
+from . import models, schemas,resume_models
 from typing import List, Optional
 from datetime import datetime
 from fastapi import HTTPException, status
@@ -125,6 +125,211 @@ import datetime
 from app.models import Vacancy, VacancyApplication
 from app.schemas import VacancyCreate, VacancyUpdate, VacancyApplicationCreate
 
+from sqlalchemy.orm import Session
+from sqlalchemy import or_, and_, desc, asc, case, func
+from typing import List, Optional
+from app.models import Vacancy
+from sqlalchemy import or_, and_, desc, asc, case, func
+from typing import List, Optional, Dict, Any
+
+
+def get_vacancies_filtered(
+        db: Session,
+        skip: int = 0,
+        limit: int = 100,
+        keyword: Optional[str] = None,
+        lang: Optional[str] = "ru",
+        employment_type: Optional[str] = None,
+        work_type: Optional[str] = None,
+        min_salary: Optional[int] = None,
+        max_salary: Optional[int] = None,
+        location: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Получение списка вакансий с фильтрацией и поиском
+    Возвращает словарь с вакансиями, общим количеством и информацией о пагинации
+    """
+    # Базовый запрос
+    base_query = db.query(Vacancy).filter(Vacancy.is_active == True)
+
+    # Применяем все фильтры к базовому запросу
+    filtered_query = _apply_filters(
+        base_query, keyword, lang, employment_type, work_type,
+        min_salary, max_salary, location
+    )
+
+    # Подсчитываем общее количество найденных записей
+    total_count = filtered_query.count()
+
+    # Применяем сортировку
+    sorted_query = _apply_sorting(filtered_query, keyword, lang)
+
+    # Получаем вакансии с пагинацией
+    vacancies = sorted_query.offset(skip).limit(limit).all()
+
+    # Вычисляем информацию о пагинации
+    total_pages = (total_count + limit - 1) // limit  # Округление вверх
+    current_page = (skip // limit) + 1
+    has_next = skip + limit < total_count
+    has_prev = skip > 0
+
+    return {
+        "vacancies": vacancies,
+        "total_count": total_count,
+        "page_info": {
+            "current_page": current_page,
+            "total_pages": total_pages,
+            "per_page": limit,
+            "has_next": has_next,
+            "has_prev": has_prev
+        }
+    }
+
+
+def _apply_filters(
+        query, keyword: Optional[str], lang: str, employment_type: Optional[str],
+        work_type: Optional[str], min_salary: Optional[int], max_salary: Optional[int],
+        location: Optional[str]
+):
+    """
+    Применяет все фильтры к запросу
+    """
+    # Фильтрация по ключевому слову
+    if keyword:
+        keyword_lower = f"%{keyword.lower()}%"
+
+        if lang == "kz":
+            query = query.filter(
+                or_(
+                    Vacancy.title_kz.ilike(keyword_lower),
+                    Vacancy.description_kz.ilike(keyword_lower),
+                    Vacancy.requirements_kz.ilike(keyword_lower),
+                    Vacancy.title_ru.ilike(keyword_lower),
+                    Vacancy.description_ru.ilike(keyword_lower),
+                    Vacancy.requirements_ru.ilike(keyword_lower)
+                )
+            )
+        else:
+            query = query.filter(
+                or_(
+                    Vacancy.title_ru.ilike(keyword_lower),
+                    Vacancy.description_ru.ilike(keyword_lower),
+                    Vacancy.requirements_ru.ilike(keyword_lower),
+                    Vacancy.title_kz.ilike(keyword_lower),
+                    Vacancy.description_kz.ilike(keyword_lower),
+                    Vacancy.requirements_kz.ilike(keyword_lower)
+                )
+            )
+
+    # Фильтрация по типу занятости
+    if employment_type:
+        query = query.filter(Vacancy.employment_type.ilike(f"%{employment_type}%"))
+
+    # Фильтрация по типу работы
+    if work_type:
+        query = query.filter(Vacancy.work_type.ilike(f"%{work_type}%"))
+
+    # Фильтрация по зарплате
+    if min_salary is not None:
+        query = query.filter(Vacancy.salary >= min_salary)
+
+    if max_salary is not None:
+        query = query.filter(Vacancy.salary <= max_salary)
+
+    # Фильтрация по местоположению
+    if location:
+        location_lower = f"%{location.lower()}%"
+        if lang == "kz":
+            query = query.filter(
+                or_(
+                    Vacancy.location_kz.ilike(location_lower),
+                    Vacancy.location_ru.ilike(location_lower)
+                )
+            )
+        else:
+            query = query.filter(
+                or_(
+                    Vacancy.location_ru.ilike(location_lower),
+                    Vacancy.location_kz.ilike(location_lower)
+                )
+            )
+
+    return query
+
+
+def _apply_sorting(query, keyword: Optional[str], lang: str):
+    """
+    Применяет сортировку к запросу
+    """
+    if keyword:
+        keyword_lower = f"%{keyword.lower()}%"
+
+        if lang == "kz":
+            # Сортировка с приоритетом по казахскому языку
+            query = query.order_by(
+                case(
+                    (Vacancy.title_kz.ilike(keyword_lower), 1),
+                    (Vacancy.description_kz.ilike(keyword_lower), 2),
+                    (Vacancy.requirements_kz.ilike(keyword_lower), 3),
+                    (Vacancy.title_ru.ilike(keyword_lower), 4),
+                    (Vacancy.description_ru.ilike(keyword_lower), 5),
+                    (Vacancy.requirements_ru.ilike(keyword_lower), 6),
+                    else_=7
+                ),
+                desc(Vacancy.created_at)
+            )
+        else:
+            # Сортировка с приоритетом по русскому языку
+            query = query.order_by(
+                case(
+                    (Vacancy.title_ru.ilike(keyword_lower), 1),
+                    (Vacancy.description_ru.ilike(keyword_lower), 2),
+                    (Vacancy.requirements_ru.ilike(keyword_lower), 3),
+                    (Vacancy.title_kz.ilike(keyword_lower), 4),
+                    (Vacancy.description_kz.ilike(keyword_lower), 5),
+                    (Vacancy.requirements_kz.ilike(keyword_lower), 6),
+                    else_=7
+                ),
+                desc(Vacancy.created_at)
+            )
+    else:
+        # Если нет поиска по ключевому слову, сортируем по дате создания
+        query = query.order_by(desc(Vacancy.created_at))
+
+    return query
+
+
+def get_vacancy_filters_stats(db: Session):
+    """
+    Получение статистики для фильтров (уникальные значения)
+    """
+    employment_types = db.query(Vacancy.employment_type).filter(
+        Vacancy.employment_type.isnot(None),
+        Vacancy.is_active == True
+    ).distinct().all()
+
+    work_types = db.query(Vacancy.work_type).filter(
+        Vacancy.work_type.isnot(None),
+        Vacancy.is_active == True
+    ).distinct().all()
+
+    salary_range = db.query(
+        func.min(Vacancy.salary).label('min_salary'),
+        func.max(Vacancy.salary).label('max_salary')
+    ).filter(
+        Vacancy.salary.isnot(None),
+        Vacancy.is_active == True
+    ).first()
+
+    return {
+        "employment_types": [et[0] for et in employment_types if et[0]],
+        "work_types": [wt[0] for wt in work_types if wt[0]],
+        "salary_range": {
+            "min": salary_range.min_salary or 0,
+            "max": salary_range.max_salary or 0
+        }
+    }
+
 
 def get_vacancies(db: Session, skip: int = 0, limit: int = 100) -> List[Vacancy]:
     """
@@ -246,28 +451,23 @@ def delete_vacancy(db: Session, vacancy_id: int) -> bool:
 
 def create_vacancy_application(
         db: Session,
-        application: VacancyApplicationCreate,
-        resume_content: bytes
+        user_id: int,
+        application: VacancyApplicationCreate
 ) -> VacancyApplication:
-    """
-    Создание отклика на вакансию
-    """
+    """Создание нового отклика на вакансию"""
     db_application = VacancyApplication(
         vacancy_id=application.vacancy_id,
-        first_name=application.first_name,
-        last_name=application.last_name,
-        email=application.email,
-        phone=application.phone,
+        user_id=user_id,
+        resume_id=application.resume_id,
         cover_letter=application.cover_letter,
-        resume_filename=application.resume_filename,
-        resume_content=resume_content,
-        created_at=datetime.now()
+        status="new",
+        created_at=datetime.utcnow()
     )
+
     db.add(db_application)
     db.commit()
     db.refresh(db_application)
     return db_application
-
 
 # Add these functions to crud.py
 
@@ -284,50 +484,103 @@ def get_vacancy_applications(db: Session, vacancy_id: int):
     return db.query(VacancyApplication).filter(VacancyApplication.vacancy_id == vacancy_id).all()
 
 
-def get_vacancy_application(db: Session, application_id: int, vacancy_id: int):
-    """
-    Get a specific application for a vacancy
-    """
+def get_user_applications(
+    db: Session,
+    user_id: int,
+    skip: int = 0,
+    limit: int = 100
+) -> List[VacancyApplication]:
+    """Получение всех откликов пользователя"""
     return db.query(VacancyApplication).filter(
-        VacancyApplication.id == application_id,
-        VacancyApplication.vacancy_id == vacancy_id
+        VacancyApplication.user_id == user_id
+    ).order_by(VacancyApplication.created_at.desc()).offset(skip).limit(limit).all()
+
+
+
+def get_vacancy_application(
+    db: Session,
+    application_id: int,
+    vacancy_id: int
+) -> Optional[VacancyApplication]:
+    """Получение конкретного отклика на вакансию"""
+    return db.query(VacancyApplication).filter(
+        and_(
+            VacancyApplication.id == application_id,
+            VacancyApplication.vacancy_id == vacancy_id
+        )
     ).first()
 
 
-def create_vacancy_application(db: Session, application: VacancyApplicationCreate, resume_content: bytes):
-    """
-    Create a new application for a vacancy
-    """
-    db_application = VacancyApplication(
-        vacancy_id=application.vacancy_id,
-        first_name=application.first_name,
-        last_name=application.last_name,
-        email=application.email,
-        phone=application.phone,
-        cover_letter=application.cover_letter,
-        resume_filename=application.resume_filename,
-        resume_content=resume_content,
-        created_at=datetime.now()
-    )
+def update_vacancy_application_status(
+        db: Session,
+        application_id: int,
+        status: str
+) -> Optional[VacancyApplication]:
+    """Обновление статуса отклика"""
+    db_application = db.query(VacancyApplication).filter(
+        VacancyApplication.id == application_id
+    ).first()
 
-    db.add(db_application)
-    db.commit()
-    db.refresh(db_application)
-    return db_application
-
-
-def update_vacancy_application_status(db: Session, application_id: int, status: str):
-    """
-    Update the status of an application
-    """
-    db_application = db.query(VacancyApplication).filter(VacancyApplication.id == application_id).first()
     if db_application:
-        # Add status field to VacancyApplication model if it doesn't exist
-        # This would require a database migration
         db_application.status = status
+        db_application.updated_at = datetime.utcnow()
         db.commit()
         db.refresh(db_application)
+
     return db_application
+
+
+def check_existing_application(
+    db: Session,
+    user_id: int,
+    vacancy_id: int
+) -> Optional[VacancyApplication]:
+    """Проверка существования отклика пользователя на вакансию"""
+    return db.query(VacancyApplication).filter(
+        and_(
+            VacancyApplication.user_id == user_id,
+            VacancyApplication.vacancy_id == vacancy_id
+        )
+    ).first()
+
+
+def get_user_resumes(db: Session, user_id: int) -> List[resume_models.Resume]:
+    """Получение всех активных резюме пользователя"""
+    return db.query(resume_models.Resume).filter(
+        and_(
+            resume_models.Resume.user_id == user_id,
+            resume_models.Resume.is_active == True
+        )
+    ).all()
+
+
+def get_resume(db: Session, resume_id: int, user_id: int) -> Optional[resume_models.Resume]:
+    """Получение конкретного резюме пользователя"""
+    return db.query(resume_models.Resume).filter(
+        and_(
+            resume_models.Resume.id == resume_id,
+            resume_models.Resume.user_id == user_id,
+            resume_models.Resume.is_active == True
+        )
+    ).first()
+
+
+def delete_vacancy_application(db: Session, application_id: int, user_id: int) -> bool:
+    """Удаление отклика (только автором)"""
+    db_application = db.query(VacancyApplication).filter(
+        and_(
+            VacancyApplication.id == application_id,
+            VacancyApplication.user_id == user_id
+        )
+    ).first()
+
+    if db_application:
+        db.delete(db_application)
+        db.commit()
+        return True
+
+    return False
+
 
 
 from sqlalchemy.orm import Session

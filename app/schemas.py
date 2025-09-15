@@ -110,6 +110,7 @@ class IndividualRegistration(BaseModel):
 
 
 # Схемы для регистрации организаций
+# Схема остается с phone_number
 class OrganizationRegistration(BaseModel):
     phone_number: str
     name: str
@@ -118,19 +119,6 @@ class OrganizationRegistration(BaseModel):
     address: str
     email: Optional[EmailStr] = None
 
-    @validator('phone_number')
-    def validate_phone(cls, v):
-        if not v.startswith('+7') and not v.startswith('8'):
-            raise ValueError('Номер телефона должен начинаться с +7 или 8')
-        return v
-
-    @validator('bin_number')
-    def validate_bin(cls, v):
-        if len(v) != 12:
-            raise ValueError('БИН должен содержать 12 цифр')
-        if not v.isdigit():
-            raise ValueError('БИН должен содержать только цифры')
-        return v
 
 
 
@@ -492,17 +480,12 @@ class VacancyBase(BaseModel):
     # Common fields
     employment_type: Optional[str] = None
     work_type: Optional[str] = None
-    salary: Optional[str] = None
+    salary: Optional[int] = None
     contact_email: Optional[EmailStr] = None
     is_active: Optional[bool] = True
     deadline: Optional[date] = None
 
-    # Валидаторы для проверки длины описаний
-    @validator('description_kz', 'description_ru')
-    def validate_description_length(cls, v):
-        if v and len(v) > 1000:
-            raise ValueError("Описание вакансии не должно превышать 1000 символов")
-        return v
+
 
 
 # Класс для создания вакансии
@@ -577,29 +560,71 @@ class VacancyFilter(BaseModel):
     search: Optional[str] = None
 
 
+# schemas.py - Схемы для откликов на вакансии
+
+from pydantic import BaseModel, EmailStr
+from typing import Optional
+from datetime import datetime
 
 
-class VacancyApplicationBase(BaseModel):
+class VacancyApplicationCreate(BaseModel):
+    """Схема для создания отклика на вакансию"""
     vacancy_id: int
-    first_name: str
-    last_name: str
-    email: EmailStr
-    phone: Optional[str] = None
+    resume_id: int
     cover_letter: Optional[str] = None
-    resume_filename: str
 
 
-class VacancyApplicationCreate(VacancyApplicationBase):
-    pass
-
-
-class VacancyApplication(VacancyApplicationBase):
+class VacancyApplicationResponse(BaseModel):
+    """Схема ответа для отклика на вакансию"""
     id: int
+    vacancy_id: int
+    user_id: int
+    resume_id: int
+    cover_letter: Optional[str]
+    status: str
     created_at: datetime
-    status: Optional[str] = "new"
+    updated_at: Optional[datetime]
 
     class Config:
-        orm_mode = True
+        from_attributes = True
+
+
+class VacancyApplicationUpdate(BaseModel):
+    """Схема для обновления статуса отклика"""
+    status: str  # new, reviewed, accepted, rejected
+
+
+class VacancyApplicationList(BaseModel):
+    """Схема для списка откликов с базовой информацией"""
+    id: int
+    vacancy_id: int
+    user_id: int
+    resume_id: int
+    status: str
+    created_at: datetime
+
+    # Дополнительные поля для удобства
+    user_full_name: Optional[str] = None
+    resume_profession: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class ResumeBasic(BaseModel):
+    """Базовая информация о резюме для выбора"""
+    id: int
+    profession_id: int
+    full_name: str
+    is_active: bool
+    is_published: bool
+
+    # Дополнительная информация для удобства выбора
+    profession_name: Optional[str] = None
+    city_name: Optional[str] = None
+
+    class Config:
+        from_attributes = True
 
 
 

@@ -283,8 +283,8 @@ async def register_individual(
         }
     }
 
-# Регистрация организации
-@router.post("/register-organization", response_model=schemas.OrganizationResponse)
+# Регистрация организации (исправленная версия с номером телефона)
+@router.post("/register-organization")
 def register_organization(
         org_data: schemas.OrganizationRegistration,
         db: Session = Depends(get_db)
@@ -292,25 +292,36 @@ def register_organization(
     """
     Регистрация организации
     """
-    # Проверяем, что пользователь еще не зарегистрирован
+    # Ищем существующего пользователя
     existing_user = db.query(models.User).filter(
         models.User.phone_number == org_data.phone_number
     ).first()
 
     if existing_user:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Пользователь с таким номером уже зарегистрирован"
-        )
+        # Проверяем, есть ли уже Organization данные
+        organization_data = db.query(models.Organization).filter(
+            models.Organization.user_id == existing_user.id
+        ).first()
 
-    # Создаем пользователя
-    new_user = models.User(
-        phone_number=org_data.phone_number,
-        user_type=models.UserTypeEnum.ORGANIZATION
-    )
-    db.add(new_user)
-    db.commit()
-    db.refresh(new_user)
+        if organization_data:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Пользователь с таким номером уже зарегистрирован"
+            )
+
+        # Если User есть, но Organization нет - используем существующего User
+        new_user = existing_user
+        new_user.user_type = models.UserTypeEnum.ORGANIZATION
+        db.commit()
+    else:
+        # Создаем нового пользователя
+        new_user = models.User(
+            phone_number=org_data.phone_number,
+            user_type=models.UserTypeEnum.ORGANIZATION
+        )
+        db.add(new_user)
+        db.commit()
+        db.refresh(new_user)
 
     # Создаем запись организации
     organization = models.Organization(
@@ -322,9 +333,27 @@ def register_organization(
         address=org_data.address
     )
     db.add(organization)
+
+    # Обновляем статус верификации пользователя
+    new_user.is_verified = True
     db.commit()
 
-    return schemas.OrganizationResponse.from_orm(new_user)
+    # Создаем токен доступа
+    access_token = oauth2.create_access_token(data={"user_id": str(new_user.id)})
+
+    return {
+        "message": "Регистрация организации прошла успешно",
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user_data": {
+            "id": new_user.id,
+            "phone_number": new_user.phone_number,
+            "user_type": new_user.user_type.value,
+            "service_status": new_user.service_status.value,
+            "is_verified": new_user.is_verified
+        }
+    }
+
 
 #
 # # Получение справочников

@@ -9,26 +9,56 @@ from app.schemas import (
     VacancyUpdate,
     VacancyFilter,
     VacancyApplicationCreate,
-    VacancyApplication
 )
 from app import crud
 from app.utils import send_email, validate_file_extension
 from app.oauth2 import get_current_user
+
+from app import models, schemas,resume_models
+
 from datetime import datetime
 
 router = APIRouter(prefix="/api/v2/vacancies", tags=["Vacancies"])
 
 
-@router.get("/", response_model=List[VacancyList])
+@router.get("/")
 def list_vacancies(
-        skip: int = 0,
-        limit: int = 100,
+        skip: int = Query(0, ge=0, description="Количество записей для пропуска"),
+        limit: int = Query(100, ge=1, le=1000, description="Лимит записей"),
+        keyword: Optional[str] = Query(None, description="Ключевое слово для поиска"),
+        lang: Optional[str] = Query("ru", regex="^(kz|ru)$", description="Язык поиска (kz/ru)"),
+        employment_type: Optional[str] = Query(None, description="Тип занятости"),
+        work_type: Optional[str] = Query(None, description="Тип работы"),
+        min_salary: Optional[int] = Query(None, ge=0, description="Минимальная зарплата"),
+        max_salary: Optional[int] = Query(None, ge=0, description="Максимальная зарплата"),
+        location: Optional[str] = Query(None, description="Местоположение"),
         db: Session = Depends(get_db)
 ):
     """
-    Получение списка всех вакансий
+    Получение списка вакансий с фильтрацией
+
+    Параметры фильтрации:
+    - keyword: поиск по названию (приоритет по выбранному языку)
+    - lang: язык поиска (kz/ru) - определяет приоритет поиска
+    - employment_type: тип занятости
+    - work_type: тип работы
+    - min_salary/max_salary: диапазон зарплаты
+    - location: местоположение
     """
-    vacancies = crud.get_vacancies(db, skip=skip, limit=limit)
+    vacancies = crud.get_vacancies_filtered(
+        db=db,
+        skip=skip,
+        limit=limit,
+        keyword=keyword,
+        lang=lang,
+        employment_type=employment_type,
+        work_type=work_type,
+        min_salary=min_salary,
+        max_salary=max_salary,
+        location=location
+    )
+
+    print(vacancies)
     return vacancies
 
 
@@ -140,17 +170,17 @@ def update_vacancy(
 def delete_vacancy(
         vacancy_id: int,
         db: Session = Depends(get_db),
-        current_user=Depends(get_current_user)
+        # current_user=Depends(get_current_user)
 ):
     """
     Удаление вакансии (только для авторизованных администраторов)
     """
     # Проверка прав доступа (администратор)
-    if not current_user.is_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="У вас недостаточно прав для выполнения этого действия"
-        )
+    # if not current_user.is_admin:
+    #     raise HTTPException(
+    #         status_code=status.HTTP_403_FORBIDDEN,
+    #         detail="У вас недостаточно прав для выполнения этого действия"
+    #     )
 
     # Проверяем существование вакансии
     existing_vacancy = crud.get_vacancy(db, vacancy_id=vacancy_id)
@@ -169,20 +199,16 @@ def delete_vacancy(
 
 # Исправленный код для функции apply_for_vacancy без параметра attachments
 
-@router.post("/{vacancy_id}/apply", response_model=VacancyApplication, status_code=status.HTTP_201_CREATED)
-async def apply_for_vacancy(
+@router.post("/{vacancy_id}/apply",  status_code=status.HTTP_201_CREATED)
+def apply_for_vacancy(
         vacancy_id: int,
+        application: VacancyApplicationCreate,
         background_tasks: BackgroundTasks,
-        last_name: str = Form(...),
-        first_name: str = Form(...),
-        email: str = Form(...),
-        phone: Optional[str] = Form(None),
-        cover_letter: Optional[str] = Form(None),
-        resume: UploadFile = File(...),
-        db: Session = Depends(get_db)
+        db: Session = Depends(get_db),
+        current_user: models.User = Depends(get_current_user)
 ):
     """
-    Отправка отклика на вакансию
+    Подача отклика на вакансию с выбором резюме
     """
     # Проверка существования вакансии
     vacancy = crud.get_vacancy(db, vacancy_id=vacancy_id)
@@ -192,86 +218,104 @@ async def apply_for_vacancy(
             detail="Вакансия не найдена"
         )
 
-    # Проверка формата файла (разрешены только word и pdf)
-    allowed_extensions = ['doc', 'docx', 'pdf']
-    if not validate_file_extension(resume.filename, allowed_extensions):
+    # Проверка, что пользователь не подавал отклик на эту вакансию ранее
+    existing_application = crud.check_existing_application(
+        db, user_id=current_user.id, vacancy_id=vacancy_id
+    )
+    if existing_application:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Разрешены только файлы в формате Word (doc, docx) и PDF"
+            detail="Вы уже подавали отклик на эту вакансию"
         )
 
-    # Чтение содержимого файла
-    resume_content = await resume.read()
+    # Проверка принадлежности резюме пользователю
+    resume = crud.get_resume(db, resume_id=application.resume_id, user_id=current_user.id)
+    if not resume:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Резюме не найдено или не принадлежит вам"
+        )
 
-    # Создание данных для отклика
-    application_data = VacancyApplicationCreate(
-        vacancy_id=vacancy_id,
-        last_name=last_name,
-        first_name=first_name,
-        email=email,
-        phone=phone,
-        cover_letter=cover_letter,
-        resume_filename=resume.filename
-    )
+    # Проверка, что резюме опубликовано
+    if not resume.is_published:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Можно использовать только опубликованные резюме"
+        )
 
-    # Создание отклика в базе данных
-    application = crud.create_vacancy_application(
+    # Создание отклика
+    application.vacancy_id = vacancy_id
+    new_application = crud.create_vacancy_application(
         db=db,
-        application=application_data,
-        resume_content=resume_content
+        user_id=current_user.id,
+        application=application
     )
 
-    # Получаем заголовок вакансии с учетом мультиязычности
+    # Получение информации для уведомления
     vacancy_title = vacancy.title_ru or vacancy.title_kz or "Вакансия"
 
-    # Отправка уведомления о новом отклике на указанную в вакансии почту
-    # Убираем параметр attachments, так как он не поддерживается
-    background_tasks.add_task(
-        send_email,
-        recipient_email=vacancy.contact_email,
-        subject=f"Новый отклик на вакансию '{vacancy_title}'",
-        message=f"""
-        Здравствуйте!
+    # Отправка уведомления работодателю
+    if vacancy.contact_email:
+        background_tasks.add_task(
+            send_email,
+            recipient_email=vacancy.contact_email,
+            subject=f"Новый отклик на вакансию '{vacancy_title}'",
+            message=f"""
+            Здравствуйте!
 
-        Получен новый отклик на вакансию "{vacancy_title}".
+            Получен новый отклик на вакансию "{vacancy_title}".
 
-        Данные кандидата:
-        - Имя: {first_name} {last_name}
-        - Email: {email}
-        - Телефон: {phone or "Не указан"}
+            Данные кандидата:
+            - Имя: {resume.full_name}
+            - Профессия: {resume.profession_id}  # Здесь можно добавить название профессии
 
-        Сопроводительное письмо:
-        {cover_letter or "Не указано"}
+            {f"Сопроводительное письмо: {application.cover_letter}" if application.cover_letter else ""}
 
-        Резюме кандидата сохранено в системе. Вы можете загрузить его из административной панели.
+            Вы можете просмотреть подробную информацию о кандидате в административной панели.
 
-        С уважением,
-        Система управления вакансиями
-        """
-    )
+            С уважением,
+            Система управления вакансиями
+            """
+        )
 
-    return application
+    return new_application
 
 
 # Add these routes to the existing router in vacancy API
+@router.get("/my-applications")
+def get_my_applications(
+    skip: int = 0,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """
+    Получение списка моих откликов на вакансии
+    """
+    applications = crud.get_user_applications(
+        db, user_id=current_user.id, skip=skip, limit=limit
+    )
+    return applications
 
-@router.get("/{vacancy_id}/applications", response_model=List[VacancyApplication])
+
+
+@router.get("/{vacancy_id}/applications")
 def get_vacancy_applications(
         vacancy_id: int,
         db: Session = Depends(get_db),
-        # current_user=Depends(get_current_user)
+        current_user: models.User = Depends(get_current_user)
 ):
     """
-    Получение списка откликов на вакансию (только для авторизованных администраторов)
+    Получение списка откликов на вакансию (только для администраторов)
     """
-    # Проверка прав доступа (администратор)
-    # if not current_user.is_admin:
-    #     raise HTTPException(
-    #         status_code=status.HTTP_403_FORBIDDEN,
-    #         detail="У вас недостаточно прав для выполнения этого действия"
-    #     )
+    # Проверка прав доступа
+    if not current_user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="У вас недостаточно прав для выполнения этого действия"
+        )
 
-    # Проверяем существование вакансии
+    # Проверка существования вакансии
     vacancy = crud.get_vacancy(db, vacancy_id=vacancy_id)
     if not vacancy:
         raise HTTPException(
@@ -279,7 +323,6 @@ def get_vacancy_applications(
             detail="Вакансия не найдена"
         )
 
-    # Получаем список откликов
     applications = crud.get_vacancy_applications(db, vacancy_id=vacancy_id)
     return applications
 
@@ -319,37 +362,70 @@ def download_vacancy_application_resume(
     )
 
 
-@router.patch("/{vacancy_id}/applications/{application_id}", response_model=VacancyApplication)
-def update_vacancy_application_status(
+@router.patch("/{vacancy_id}/applications/{application_id}")
+def update_application_status(
         vacancy_id: int,
         application_id: int,
-        status_update: dict,
+        status_update: schemas.VacancyApplicationUpdate,
         db: Session = Depends(get_db),
-        # current_user=Depends(get_current_user)
+        current_user: models.User = Depends(get_current_user)
 ):
     """
-    Обновление статуса отклика на вакансию (только для авторизованных администраторов)
+    Обновление статуса отклика (только для администраторов)
     """
-    # Проверка прав доступа (администратор)
-    # if not current_user.is_admin:
-    #     raise HTTPException(
-    #         status_code=status.HTTP_403_FORBIDDEN,
-    #         detail="У вас недостаточно прав для выполнения этого действия"
-    #     )
+    # Проверка прав доступа
+    if not current_user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="У вас недостаточно прав для выполнения этого действия"
+        )
 
-    # Получаем отклик на вакансию
-    application = crud.get_vacancy_application(db, application_id=application_id, vacancy_id=vacancy_id)
+    # Проверка существования отклика
+    application = crud.get_vacancy_application(
+        db, application_id=application_id, vacancy_id=vacancy_id
+    )
     if not application:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Отклик не найден"
         )
 
-    # Обновляем статус отклика
+    # Валидация статуса
+    allowed_statuses = ["new", "reviewed", "accepted", "rejected"]
+    if status_update.status not in allowed_statuses:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Недопустимый статус. Разрешены: {', '.join(allowed_statuses)}"
+        )
+
+    # Обновление статуса
     updated_application = crud.update_vacancy_application_status(
-        db,
-        application_id=application_id,
-        status=status_update.get("status")
+        db, application_id=application_id, status=status_update.status
     )
 
     return updated_application
+
+
+@router.delete("/applications/{application_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_my_application(
+        application_id: int,
+        db: Session = Depends(get_db),
+        current_user: models.User = Depends(get_current_user)
+):
+    """
+    Удаление своего отклика на вакансию
+    """
+    success = crud.delete_vacancy_application(
+        db, application_id=application_id, user_id=current_user.id
+    )
+
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Отклик не найден или не принадлежит вам"
+        )
+
+
+
+from sqlalchemy import func
+from typing import Optional, List
