@@ -108,6 +108,132 @@ def get_projects(
         for project in projects
     ]
 
+from datetime import datetime, timezone
+from sqlalchemy import Column, Integer, String, Text, DateTime, func, desc
+
+def calculate_time_remaining(end_date: datetime) -> dict:
+    """
+    Вычисляет оставшееся время до завершения проекта
+    """
+    now = datetime.now(timezone.utc)
+
+    # Убеждаемся, что end_date имеет timezone info
+    if end_date.tzinfo is None:
+        end_date = end_date.replace(tzinfo=timezone.utc)
+
+    time_diff = end_date - now
+
+    if time_diff.total_seconds() <= 0:
+        return {
+            "hours_remaining": 0,
+            "minutes_remaining": 0,
+            "is_expired": True
+        }
+
+    total_seconds = int(time_diff.total_seconds())
+    hours = total_seconds // 3600
+    minutes = (total_seconds % 3600) // 60
+
+    return {
+        "hours_remaining": hours,
+        "minutes_remaining": minutes,
+        "is_expired": False
+    }
+
+
+def update_project_status(project: Project) -> str:
+    """
+    Обновляет статус проекта на основе текущего времени
+    """
+    now = datetime.now(timezone.utc)
+
+    # Убеждаемся, что даты имеют timezone info
+    if project.end_date.tzinfo is None:
+        end_date = project.end_date.replace(tzinfo=timezone.utc)
+    else:
+        end_date = project.end_date
+
+    if project.start_date.tzinfo is None:
+        start_date = project.start_date.replace(tzinfo=timezone.utc)
+    else:
+        start_date = project.start_date
+
+    # Если конечная дата прошла
+    if now >= end_date:
+        return "completed"
+    # Если проект еще не начался и статус draft
+    elif now < start_date and project.status == "draft":
+        return "draft"
+    # Если проект в процессе
+    elif start_date <= now < end_date and project.status in ["draft", "active"]:
+        return "active"
+
+    # Возвращаем текущий статус, если не нужно менять
+    return project.status
+
+
+@router.get("/new")
+def get_projects(
+        project_type: Optional[str] = None,
+        status: Optional[str] = None,
+        skip: int = 0,
+        limit: int = 10,
+        db: Session = Depends(get_db)
+):
+    """
+    Получение списка проектов с фильтрами
+    """
+    query = db.query(Project)
+
+    if project_type:
+        query = query.filter(Project.project_type == project_type)
+
+    if status:
+        query = query.filter(Project.status == status)
+
+    projects = query.order_by(desc(Project.created_at)).offset(skip).limit(limit).all()
+
+    # Обновляем статусы проектов и формируем ответ
+    result = []
+
+    for project in projects:
+        # Определяем актуальный статус
+        actual_status = update_project_status(project)
+
+        # Если статус изменился, обновляем в базе данных
+        if actual_status != project.status:
+            project.status = actual_status
+            db.add(project)
+
+        # Вычисляем оставшееся время
+        time_remaining = calculate_time_remaining(project.end_date)
+
+        project_data = {
+            "id": project.id,
+            "title": project.title,
+            "title_ru": project.title_ru,
+            "description": project.description,
+            "description_ru": project.description_ru,
+            "author": project.author,
+            "project_type": project.project_type,
+            "status": actual_status,  # Используем актуальный статус
+            "start_date": project.start_date,
+            "end_date": project.end_date,
+            "photo_url": get_full_url(project.photo_url),
+            "video_url": get_full_url(project.video_url),
+            "created_at": project.created_at,
+            # Добавляем информацию о времени до завершения
+            "hours_remaining": time_remaining["hours_remaining"],
+            "minutes_remaining": time_remaining["minutes_remaining"],
+            "is_expired": time_remaining["is_expired"]
+        }
+
+        result.append(project_data)
+
+    # Сохраняем изменения статусов в базе данных
+    db.commit()
+
+    return result
 
 @router.get("/{project_id}", response_model=dict)
 def get_project_detail(project_id: int, db: Session = Depends(get_db)):
