@@ -110,18 +110,24 @@ def get_projects(
 
 from datetime import datetime, timezone
 from sqlalchemy import Column, Integer, String, Text, DateTime, func, desc
+from datetime import datetime, timezone, timedelta
+
 
 def calculate_time_remaining(end_date: datetime) -> dict:
     """
     Вычисляет оставшееся время до завершения проекта
+    Простое решение: прибавляем 6 часов к UTC времени для получения казахстанского времени
     """
-    now = datetime.now(timezone.utc)
+    # Получаем UTC время и добавляем 6 часов (Казахстан)
+    now_utc = datetime.utcnow()
+    now_local = now_utc + timedelta(hours=6)
 
-    # Убеждаемся, что end_date имеет timezone info
-    if end_date.tzinfo is None:
-        end_date = end_date.replace(tzinfo=timezone.utc)
+    # Считаем что end_date уже в локальном времени
+    if end_date.tzinfo is not None:
+        # Если есть timezone info, убираем её для простоты
+        end_date = end_date.replace(tzinfo=None)
 
-    time_diff = end_date - now
+    time_diff = end_date - now_local
 
     if time_diff.total_seconds() <= 0:
         return {
@@ -145,30 +151,24 @@ def update_project_status(project: Project) -> str:
     """
     Обновляет статус проекта на основе текущего времени
     """
-    now = datetime.now(timezone.utc)
+    # Получаем локальное время (UTC + 6 часов)
+    now_utc = datetime.utcnow()
+    now_local = now_utc + timedelta(hours=6)
 
-    # Убеждаемся, что даты имеют timezone info
-    if project.end_date.tzinfo is None:
-        end_date = project.end_date.replace(tzinfo=timezone.utc)
-    else:
-        end_date = project.end_date
-
-    if project.start_date.tzinfo is None:
-        start_date = project.start_date.replace(tzinfo=timezone.utc)
-    else:
-        start_date = project.start_date
+    # Работаем с датами как с локальными (без timezone)
+    end_date = project.end_date.replace(tzinfo=None) if project.end_date.tzinfo else project.end_date
+    start_date = project.start_date.replace(tzinfo=None) if project.start_date.tzinfo else project.start_date
 
     # Если конечная дата прошла
-    if now >= end_date:
+    if now_local >= end_date:
         return "completed"
     # Если проект еще не начался и статус draft
-    elif now < start_date and project.status == "draft":
+    elif now_local < start_date and project.status == "draft":
         return "draft"
     # Если проект в процессе
-    elif start_date <= now < end_date and project.status in ["draft", "active"]:
+    elif start_date <= now_local < end_date and project.status in ["draft", "active"]:
         return "active"
 
-    # Возвращаем текущий статус, если не нужно менять
     return project.status
 
 
@@ -193,7 +193,6 @@ def get_projects(
 
     projects = query.order_by(desc(Project.created_at)).offset(skip).limit(limit).all()
 
-    # Обновляем статусы проектов и формируем ответ
     result = []
 
     for project in projects:
@@ -216,13 +215,12 @@ def get_projects(
             "description_ru": project.description_ru,
             "author": project.author,
             "project_type": project.project_type,
-            "status": actual_status,  # Используем актуальный статус
+            "status": actual_status,
             "start_date": project.start_date,
             "end_date": project.end_date,
             "photo_url": get_full_url(project.photo_url),
             "video_url": get_full_url(project.video_url),
             "created_at": project.created_at,
-            # Добавляем информацию о времени до завершения
             "hours_remaining": time_remaining["hours_remaining"],
             "minutes_remaining": time_remaining["minutes_remaining"],
             "is_expired": time_remaining["is_expired"]
@@ -230,10 +228,10 @@ def get_projects(
 
         result.append(project_data)
 
-    # Сохраняем изменения статусов в базе данных
     db.commit()
 
     return result
+
 
 @router.get("/{project_id}", response_model=dict)
 def get_project_detail(project_id: int, db: Session = Depends(get_db)):
