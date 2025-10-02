@@ -20,7 +20,7 @@ from datetime import datetime
 router = APIRouter(prefix="/api/v2/projects", tags=["Projects Multi-language"])
 
 # Константа для базового URL
-BASE_URL = "https://soft09.tech"
+BASE_URL = "aisoft09.shop"
 
 
 def get_full_url(path: Optional[str]) -> Optional[str]:
