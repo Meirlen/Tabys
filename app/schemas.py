@@ -460,155 +460,212 @@ from pydantic import BaseModel, EmailStr, Field, validator
 from typing import Optional, List
 from datetime import datetime
 
-from pydantic import BaseModel, EmailStr, validator
+from pydantic import BaseModel, EmailStr, Field
 from typing import Optional, List
 from datetime import datetime, date
 
 
-# Базовый класс для вакансий
-class VacancyBase(BaseModel):
-    # Multilingual fields
+# ========== ВЛОЖЕННЫЕ СХЕМЫ ==========
+
+class ProfessionInVacancy(BaseModel):
+    id: int
+    name_ru: str
+    name_kz: str
+
+    class Config:
+        from_attributes = True
+
+
+class CityInVacancy(BaseModel):
+    id: int
+    name_ru: str
+    name_kz: str
+    region_id: int
+
+    class Config:
+        from_attributes = True
+
+
+class SkillInVacancy(BaseModel):
+    id: int
+    name_ru: str
+    name_kz: str
+
+    class Config:
+        from_attributes = True
+
+
+from pydantic import BaseModel, EmailStr, Field
+from typing import Optional, List
+from datetime import datetime, date
+
+
+# ========== ВЛОЖЕННЫЕ СХЕМЫ ==========
+
+class ProfessionInVacancy(BaseModel):
+    id: int
+    name_ru: str
+    name_kz: str
+
+    class Config:
+        from_attributes = True
+
+
+class CityInVacancy(BaseModel):
+    id: int
+    name_ru: str
+    name_kz: str
+    region_id: int
+
+    class Config:
+        from_attributes = True
+
+
+class SkillInVacancy(BaseModel):
+    id: int
+    name_ru: str
+    name_kz: str
+
+    class Config:
+        from_attributes = True
+
+
+# ========== СХЕМЫ ДЛЯ ВАКАНСИЙ ==========
+
+class VacancyCreate(BaseModel):
+    """Создание вакансии"""
+    # Основные поля (ОБЯЗАТЕЛЬНЫЕ)
+    profession_id: int
+    city_id: int
     title_kz: str
     title_ru: str
     description_kz: str
     description_ru: str
-    location_kz: Optional[str] = None
-    location_ru: Optional[str] = None
+    employment_type: str
+    work_type: str
+    contact_email: EmailStr
+
+    # Дополнительные поля
     requirements_kz: Optional[str] = None
     requirements_ru: Optional[str] = None
-
-    # Common fields
-    employment_type: Optional[str] = None
-    work_type: Optional[str] = None
-    salary: Optional[int] = None
-    contact_email: Optional[EmailStr] = None
-    is_active: Optional[bool] = True
+    salary_min: Optional[int] = None
+    salary_max: Optional[int] = None
+    experience_years: Optional[int] = None
+    contact_phone: Optional[str] = None
+    company_name: Optional[str] = None
     deadline: Optional[date] = None
-
-
-
-
-# Класс для создания вакансии
-class VacancyCreate(VacancyBase):
-    pass
-
-
-# Класс для ответа при получении деталей вакансии
-class VacancyDetail(VacancyBase):
-    id: int
-    created_at: datetime
-    updated_at: Optional[datetime] = None
-
-    class Config:
-        orm_mode = True
-
-
-# Класс для краткого представления вакансии в списке
-class VacancyList(BaseModel):
-    id: int
-    title_kz: str
-    title_ru: str
-    location_kz: Optional[str] = None
-    location_ru: Optional[str] = None
-    salary: Optional[str] = None
-    created_at: datetime
-    is_active: bool
-    deadline: Optional[date] = None
-
-    class Config:
-        orm_mode = True
-
-class VacancyCreate(VacancyBase):
-    pass
+    required_skills: Optional[List[int]] = None  # ID навыков
 
 
 class VacancyUpdate(BaseModel):
-    title: Optional[str] = None
+    """Обновление вакансии"""
+    profession_id: Optional[int] = None
+    city_id: Optional[int] = None
+    description_kz: Optional[str] = None
+    description_ru: Optional[str] = None
+    requirements_kz: Optional[str] = None
+    requirements_ru: Optional[str] = None
     employment_type: Optional[str] = None
     work_type: Optional[str] = None
-    salary: Optional[int] = None
-    location: Optional[str] = None
-    description: Optional[str] = None
+    salary_min: Optional[int] = None
+    salary_max: Optional[int] = None
+    experience_years: Optional[int] = None
     contact_email: Optional[EmailStr] = None
+    contact_phone: Optional[str] = None
+    company_name: Optional[str] = None
+    deadline: Optional[date] = None
+    is_active: Optional[bool] = None
+    required_skills: Optional[List[int]] = None
 
-    @validator('description')
-    def validate_description_length(cls, v):
-        if v and len(v) > 1000:
-            raise ValueError('Описание вакансии не должно превышать 1000 символов')
-        return v
 
-
-class VacancyList(VacancyBase):
+class VacancyList(BaseModel):
+    """Список вакансий (краткая инфа)"""
     id: int
+    profession: Optional[ProfessionInVacancy] = None
+    city: Optional[CityInVacancy] = None
+    employment_type: Optional[str] = None
+    work_type: Optional[str] = None
+    salary_min: Optional[int] = None
+    salary_max: Optional[int] = None
+    experience_years: Optional[int] = None
+    company_name: Optional[str] = None
+    deadline: Optional[date] = None
     created_at: datetime
+    is_active: bool
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
-class VacancyDetail(VacancyList):
+class VacancyDetail(BaseModel):
+    """Детальная информация о вакансии"""
+    id: int
+    profession: Optional[ProfessionInVacancy] = None
+    city: Optional[CityInVacancy] = None
+    description_kz: str
+    description_ru: str
+    requirements_kz: Optional[str] = None
+    requirements_ru: Optional[str] = None
+    employment_type: Optional[str] = None
+    work_type: Optional[str] = None
+    salary_min: Optional[int] = None
+    salary_max: Optional[int] = None
+    experience_years: Optional[int] = None
+    contact_email: Optional[str] = None
+    contact_phone: Optional[str] = None
+    company_name: Optional[str] = None
+    required_skills: List[SkillInVacancy] = []
+    deadline: Optional[date] = None
+    is_active: bool
+    created_at: datetime
     updated_at: Optional[datetime] = None
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
-class VacancyFilter(BaseModel):
-    employment_type: Optional[str] = None
-    work_type: Optional[str] = None
-    city: Optional[str] = None
-    search: Optional[str] = None
-
-
-# schemas.py - Схемы для откликов на вакансии
-
-from pydantic import BaseModel, EmailStr
-from typing import Optional
-from datetime import datetime
-
+# ========== СХЕМЫ ДЛЯ ОТКЛИКОВ ==========
 
 class VacancyApplicationCreate(BaseModel):
-    """Схема для создания отклика на вакансию"""
-    vacancy_id: int
+    """Создание отклика"""
     resume_id: int
     cover_letter: Optional[str] = None
-
-
-class VacancyApplicationResponse(BaseModel):
-    """Схема ответа для отклика на вакансию"""
-    id: int
-    vacancy_id: int
-    user_id: int
-    resume_id: int
-    cover_letter: Optional[str]
-    status: str
-    created_at: datetime
-    updated_at: Optional[datetime]
-
-    class Config:
-        from_attributes = True
+    vacancy_id: Optional[int] = None  # заполняется автоматически в роуте
 
 
 class VacancyApplicationUpdate(BaseModel):
-    """Схема для обновления статуса отклика"""
+    """Обновление статуса отклика"""
     status: str  # new, reviewed, accepted, rejected
 
 
-class VacancyApplicationList(BaseModel):
-    """Схема для списка откликов с базовой информацией"""
+class VacancyApplicationResponse(BaseModel):
+    """Ответ с информацией об отклике"""
     id: int
     vacancy_id: int
     user_id: int
-    resume_id: int
+    resume_id: Optional[int] = None
+    cover_letter: Optional[str] = None
     status: str
     created_at: datetime
-
-    # Дополнительные поля для удобства
-    user_full_name: Optional[str] = None
-    resume_profession: Optional[str] = None
+    updated_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
+
+
+# ========== ФИЛЬТРЫ ==========
+
+class VacancyFilter(BaseModel):
+    """Фильтры для поиска вакансий"""
+    profession_id: Optional[int] = None
+    city_id: Optional[int] = None
+    region_id: Optional[int] = None
+    employment_type: Optional[str] = None
+    work_type: Optional[str] = None
+    min_salary: Optional[int] = None
+    max_salary: Optional[int] = None
+    keyword: Optional[str] = None
+    lang: Optional[str] = "ru"
 
 
 class ResumeBasic(BaseModel):

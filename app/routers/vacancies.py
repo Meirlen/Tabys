@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, status, Query, Response, BackgroundTasks, HTTPException, File, UploadFile, Form
+from fastapi import APIRouter, Depends, status, Query, Response, BackgroundTasks, HTTPException
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.database import get_db
@@ -7,15 +7,13 @@ from app.schemas import (
     VacancyDetail,
     VacancyCreate,
     VacancyUpdate,
-    VacancyFilter,
     VacancyApplicationCreate,
+    VacancyApplicationUpdate,
 )
 from app import crud
-from app.utils import send_email, validate_file_extension
+from app.utils import send_email
 from app.oauth2 import get_current_user
-
-from app import models, schemas,resume_models
-
+from app import models, resume_models
 from datetime import datetime
 
 router = APIRouter(prefix="/api/v2/vacancies", tags=["Vacancies"])
@@ -23,63 +21,62 @@ router = APIRouter(prefix="/api/v2/vacancies", tags=["Vacancies"])
 
 @router.get("/")
 def list_vacancies(
-        skip: int = Query(0, ge=0, description="Количество записей для пропуска"),
-        limit: int = Query(100, ge=1, le=1000, description="Лимит записей"),
-        keyword: Optional[str] = Query(None, description="Ключевое слово для поиска"),
-        lang: Optional[str] = Query("ru", regex="^(kz|ru)$", description="Язык поиска (kz/ru)"),
-        employment_type: Optional[str] = Query(None, description="Тип занятости"),
-        work_type: Optional[str] = Query(None, description="Тип работы"),
-        min_salary: Optional[int] = Query(None, ge=0, description="Минимальная зарплата"),
-        max_salary: Optional[int] = Query(None, ge=0, description="Максимальная зарплата"),
-        location: Optional[str] = Query(None, description="Местоположение"),
+        skip: int = Query(0, ge=0),
+        limit: int = Query(100, ge=1, le=1000),
+        keyword: Optional[str] = Query(None),
+        lang: Optional[str] = Query("ru", regex="^(kz|ru)$"),
+        profession_id: Optional[int] = Query(None),
+        city_id: Optional[int] = Query(None),
+        region_id: Optional[int] = Query(None),
+        employment_type: Optional[str] = Query(None),
+        work_type: Optional[str] = Query(None),
+        min_salary: Optional[int] = Query(None, ge=0),
+        max_salary: Optional[int] = Query(None, ge=0),
         db: Session = Depends(get_db)
 ):
-    """
-    Получение списка вакансий с фильтрацией
-
-    Параметры фильтрации:
-    - keyword: поиск по названию (приоритет по выбранному языку)
-    - lang: язык поиска (kz/ru) - определяет приоритет поиска
-    - employment_type: тип занятости
-    - work_type: тип работы
-    - min_salary/max_salary: диапазон зарплаты
-    - location: местоположение
-    """
+    """Список вакансий с фильтрацией"""
     vacancies = crud.get_vacancies_filtered(
         db=db,
         skip=skip,
         limit=limit,
         keyword=keyword,
         lang=lang,
+        profession_id=profession_id,
+        city_id=city_id,
+        region_id=region_id,
         employment_type=employment_type,
         work_type=work_type,
         min_salary=min_salary,
         max_salary=max_salary,
-        location=location
+        is_active=True
     )
-
-    print(vacancies)
     return vacancies
 
 
-@router.get("/search", response_model=List[VacancyList])
+@router.get("/search")
 def search_vacancies(
+        profession_id: Optional[int] = None,
+        city_id: Optional[int] = None,
+        region_id: Optional[int] = None,
         employment_type: Optional[str] = None,
         work_type: Optional[str] = None,
-        city: Optional[str] = None,
+        min_salary: Optional[int] = None,
+        max_salary: Optional[int] = None,
         search: Optional[str] = None,
         skip: int = 0,
         limit: int = 100,
         db: Session = Depends(get_db)
 ):
-    """
-    Поиск и фильтрация вакансий по различным параметрам
-    """
+    """Поиск вакансий"""
     vacancies = crud.filter_vacancies(
         db,
+        profession_id=profession_id,
+        city_id=city_id,
+        region_id=region_id,
         employment_type=employment_type,
         work_type=work_type,
-        city=city,
+        min_salary=min_salary,
+        max_salary=max_salary,
         search=search,
         skip=skip,
         limit=limit
@@ -87,11 +84,9 @@ def search_vacancies(
     return vacancies
 
 
-@router.get("/{vacancy_id}", response_model=VacancyDetail)
+@router.get("/{vacancy_id}")
 def get_vacancy_details(vacancy_id: int, db: Session = Depends(get_db)):
-    """
-    Получение детальной информации о вакансии
-    """
+    """Детали вакансии"""
     vacancy = crud.get_vacancy(db, vacancy_id=vacancy_id)
     if not vacancy:
         raise HTTPException(
@@ -101,55 +96,65 @@ def get_vacancy_details(vacancy_id: int, db: Session = Depends(get_db)):
     return vacancy
 
 
-@router.post("/", response_model=VacancyDetail, status_code=status.HTTP_201_CREATED)
+@router.post("/", status_code=status.HTTP_201_CREATED)
 def create_vacancy(
         vacancy: VacancyCreate,
         db: Session = Depends(get_db),
         # current_user=Depends(get_current_user)
 ):
-    """
-    Создание новой вакансии (только для авторизованных администраторов)
-    """
-    # # Проверка прав доступа (администратор)
-    # if not current_user.is_admin:
-    #     raise HTTPException(
-    #         status_code=status.HTTP_403_FORBIDDEN,
-    #         detail="У вас недостаточно прав для выполнения этого действия"
-    #     )
-
-    # Валидация казахского и русского описаний
-    if vacancy.description_kz and len(vacancy.description_kz) > 1000:
+    """Создание вакансии"""
+    # Проверка профессии
+    profession = db.query(resume_models.Profession).filter(
+        resume_models.Profession.id == vacancy.profession_id,
+        resume_models.Profession.is_active == True
+    ).first()
+    if not profession:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Описание вакансии на казахском не должно превышать 1000 символов"
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Профессия не найдена"
         )
 
-    if vacancy.description_ru and len(vacancy.description_ru) > 1000:
+    # Проверка города
+    city = db.query(resume_models.City).filter(
+        resume_models.City.id == vacancy.city_id,
+        resume_models.City.is_active == True
+    ).first()
+    if not city:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Описание вакансии на русском не должно превышать 1000 символов"
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Город не найден"
         )
+
+    # Проверка навыков
+    if vacancy.required_skills:
+        for skill_id in vacancy.required_skills:
+            skill = db.query(resume_models.Skill).filter(
+                resume_models.Skill.id == skill_id,
+                resume_models.Skill.is_active == True
+            ).first()
+            if not skill:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Навык с ID {skill_id} не найден"
+                )
 
     return crud.create_vacancy(db=db, vacancy=vacancy)
 
-@router.put("/{vacancy_id}", response_model=VacancyDetail)
+
+@router.put("/{vacancy_id}")
 def update_vacancy(
         vacancy_id: int,
         vacancy: VacancyUpdate,
         db: Session = Depends(get_db),
         current_user=Depends(get_current_user)
 ):
-    """
-    Обновление существующей вакансии (только для авторизованных администраторов)
-    """
-    # Проверка прав доступа (администратор)
+    """Обновление вакансии"""
     if not current_user.is_admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="У вас недостаточно прав для выполнения этого действия"
+            detail="Недостаточно прав"
         )
 
-    # Проверяем существование вакансии
     existing_vacancy = crud.get_vacancy(db, vacancy_id=vacancy_id)
     if not existing_vacancy:
         raise HTTPException(
@@ -157,11 +162,39 @@ def update_vacancy(
             detail="Вакансия не найдена"
         )
 
-    if vacancy.description and len(vacancy.description) > 1000:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Описание вакансии не должно превышать 1000 символов"
-        )
+    if vacancy.profession_id:
+        profession = db.query(resume_models.Profession).filter(
+            resume_models.Profession.id == vacancy.profession_id,
+            resume_models.Profession.is_active == True
+        ).first()
+        if not profession:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Профессия не найдена"
+            )
+
+    if vacancy.city_id:
+        city = db.query(resume_models.City).filter(
+            resume_models.City.id == vacancy.city_id,
+            resume_models.City.is_active == True
+        ).first()
+        if not city:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Город не найден"
+            )
+
+    if vacancy.required_skills:
+        for skill_id in vacancy.required_skills:
+            skill = db.query(resume_models.Skill).filter(
+                resume_models.Skill.id == skill_id,
+                resume_models.Skill.is_active == True
+            ).first()
+            if not skill:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Навык с ID {skill_id} не найден"
+                )
 
     return crud.update_vacancy(db=db, vacancy_id=vacancy_id, vacancy_update=vacancy)
 
@@ -172,17 +205,7 @@ def delete_vacancy(
         db: Session = Depends(get_db),
         # current_user=Depends(get_current_user)
 ):
-    """
-    Удаление вакансии (только для авторизованных администраторов)
-    """
-    # Проверка прав доступа (администратор)
-    # if not current_user.is_admin:
-    #     raise HTTPException(
-    #         status_code=status.HTTP_403_FORBIDDEN,
-    #         detail="У вас недостаточно прав для выполнения этого действия"
-    #     )
-
-    # Проверяем существование вакансии
+    """Удаление вакансии"""
     existing_vacancy = crud.get_vacancy(db, vacancy_id=vacancy_id)
     if not existing_vacancy:
         raise HTTPException(
@@ -192,14 +215,65 @@ def delete_vacancy(
 
     crud.delete_vacancy(db=db, vacancy_id=vacancy_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
-# Исправленный код для функции apply_for_vacancy
 
 
+@router.post("/{vacancy_id}/activate")
+def activate_vacancy(
+        vacancy_id: int,
+        db: Session = Depends(get_db),
+        current_user=Depends(get_current_user)
+):
+    """Активация вакансии"""
+    if not current_user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Недостаточно прав"
+        )
+
+    vacancy = db.query(models.Vacancy).filter(models.Vacancy.id == vacancy_id).first()
+    if not vacancy:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Вакансия не найдена"
+        )
+
+    vacancy.is_active = True
+    vacancy.updated_at = datetime.utcnow()
+    db.commit()
+
+    return {"message": "Вакансия активирована", "vacancy_id": vacancy_id}
 
 
-# Исправленный код для функции apply_for_vacancy без параметра attachments
+@router.post("/{vacancy_id}/deactivate")
+def deactivate_vacancy(
+        vacancy_id: int,
+        db: Session = Depends(get_db),
+        current_user=Depends(get_current_user)
+):
+    """Деактивация вакансии"""
+    if not current_user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Недостаточно прав"
+        )
 
-@router.post("/{vacancy_id}/apply",  status_code=status.HTTP_201_CREATED)
+    vacancy = db.query(models.Vacancy).filter(models.Vacancy.id == vacancy_id).first()
+    if not vacancy:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Вакансия не найдена"
+        )
+
+    vacancy.is_active = False
+    vacancy.updated_at = datetime.utcnow()
+    db.commit()
+
+    return {"message": "Вакансия деактивирована", "vacancy_id": vacancy_id}
+
+
+# ========== ОТКЛИКИ ==========
+
+@router.post("/{vacancy_id}/apply", status_code=status.HTTP_201_CREATED)
 def apply_for_vacancy(
         vacancy_id: int,
         application: VacancyApplicationCreate,
@@ -207,43 +281,42 @@ def apply_for_vacancy(
         db: Session = Depends(get_db),
         current_user: models.User = Depends(get_current_user)
 ):
-    """
-    Подача отклика на вакансию с выбором резюме
-    """
-    # Проверка существования вакансии
-    vacancy = crud.get_vacancy(db, vacancy_id=vacancy_id)
-    if not vacancy:
+    """Подать отклик"""
+    vacancy_data = crud.get_vacancy(db, vacancy_id=vacancy_id)
+    if not vacancy_data:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Вакансия не найдена"
         )
 
-    # Проверка, что пользователь не подавал отклик на эту вакансию ранее
+    if not vacancy_data.get("is_active"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Вакансия неактивна"
+        )
+
     existing_application = crud.check_existing_application(
         db, user_id=current_user.id, vacancy_id=vacancy_id
     )
     if existing_application:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Вы уже подавали отклик на эту вакансию"
+            detail="Вы уже подавали отклик"
         )
 
-    # Проверка принадлежности резюме пользователю
     resume = crud.get_resume(db, resume_id=application.resume_id, user_id=current_user.id)
     if not resume:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Резюме не найдено или не принадлежит вам"
+            detail="Резюме не найдено"
         )
 
-    # Проверка, что резюме опубликовано
     if not resume.is_published:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Можно использовать только опубликованные резюме"
+            detail="Резюме должно быть опубликовано"
         )
 
-    # Создание отклика
     application.vacancy_id = vacancy_id
     new_application = crud.create_vacancy_application(
         db=db,
@@ -251,71 +324,56 @@ def apply_for_vacancy(
         application=application
     )
 
-    # Получение информации для уведомления
-    vacancy_title = vacancy.title_ru or vacancy.title_kz or "Вакансия"
-
-    # Отправка уведомления работодателю
-    if vacancy.contact_email:
+    # Email
+    contact_email = vacancy_data.get("contact_email")
+    if contact_email:
+        profession = vacancy_data.get("profession", {})
+        vacancy_title = profession.get("name_ru", "Вакансия")
         background_tasks.add_task(
             send_email,
-            recipient_email=vacancy.contact_email,
-            subject=f"Новый отклик на вакансию '{vacancy_title}'",
-            message=f"""
-            Здравствуйте!
-
-            Получен новый отклик на вакансию "{vacancy_title}".
-
-            Данные кандидата:
-            - Имя: {resume.full_name}
-            - Профессия: {resume.profession_id}  # Здесь можно добавить название профессии
-
-            {f"Сопроводительное письмо: {application.cover_letter}" if application.cover_letter else ""}
-
-            Вы можете просмотреть подробную информацию о кандидате в административной панели.
-
-            С уважением,
-            Система управления вакансиями
-            """
+            recipient_email=contact_email,
+            subject=f"Новый отклик на '{vacancy_title}'",
+            message=f"Новый отклик от {resume.full_name}"
         )
 
     return new_application
 
 
-# Add these routes to the existing router in vacancy API
 @router.get("/my-applications")
 def get_my_applications(
     skip: int = 0,
     limit: int = 100,
+    status_filter: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
-    """
-    Получение списка моих откликов на вакансии
-    """
+    """Мои отклики"""
     applications = crud.get_user_applications(
-        db, user_id=current_user.id, skip=skip, limit=limit
+        db,
+        user_id=current_user.id,
+        skip=skip,
+        limit=limit,
+        status_filter=status_filter
     )
     return applications
-
 
 
 @router.get("/{vacancy_id}/applications")
 def get_vacancy_applications(
         vacancy_id: int,
+        status_filter: Optional[str] = None,
+        skip: int = 0,
+        limit: int = 100,
         db: Session = Depends(get_db),
         current_user: models.User = Depends(get_current_user)
 ):
-    """
-    Получение списка откликов на вакансию (только для администраторов)
-    """
-    # Проверка прав доступа
+    """Отклики на вакансию"""
     if not current_user.is_admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="У вас недостаточно прав для выполнения этого действия"
+            detail="Недостаточно прав"
         )
 
-    # Проверка существования вакансии
     vacancy = crud.get_vacancy(db, vacancy_id=vacancy_id)
     if not vacancy:
         raise HTTPException(
@@ -323,64 +381,31 @@ def get_vacancy_applications(
             detail="Вакансия не найдена"
         )
 
-    applications = crud.get_vacancy_applications(db, vacancy_id=vacancy_id)
-    return applications
-
-
-@router.get("/{vacancy_id}/applications/{application_id}/resume")
-def download_vacancy_application_resume(
-        vacancy_id: int,
-        application_id: int,
-        db: Session = Depends(get_db),
-        # current_user=Depends(get_current_user)
-):
-    """
-    Скачивание резюме кандидата (только для авторизованных администраторов)
-    """
-    # Проверка прав доступа (администратор)
-    # if not current_user.is_admin:
-    #     raise HTTPException(
-    #         status_code=status.HTTP_403_FORBIDDEN,
-    #         detail="У вас недостаточно прав для выполнения этого действия"
-    #     )
-
-    # Получаем отклик на вакансию
-    application = crud.get_vacancy_application(db, application_id=application_id, vacancy_id=vacancy_id)
-    if not application:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Отклик не найден"
-        )
-
-    # Возвращаем файл резюме
-    return Response(
-        content=application.resume_content,
-        media_type="application/octet-stream",
-        headers={
-            "Content-Disposition": f"attachment; filename={application.resume_filename}"
-        }
+    applications = crud.get_vacancy_applications(
+        db,
+        vacancy_id=vacancy_id,
+        status_filter=status_filter,
+        skip=skip,
+        limit=limit
     )
+    return applications
 
 
 @router.patch("/{vacancy_id}/applications/{application_id}")
 def update_application_status(
         vacancy_id: int,
         application_id: int,
-        status_update: schemas.VacancyApplicationUpdate,
+        status_update: VacancyApplicationUpdate,
         db: Session = Depends(get_db),
         current_user: models.User = Depends(get_current_user)
 ):
-    """
-    Обновление статуса отклика (только для администраторов)
-    """
-    # Проверка прав доступа
+    """Обновить статус отклика"""
     if not current_user.is_admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="У вас недостаточно прав для выполнения этого действия"
+            detail="Недостаточно прав"
         )
 
-    # Проверка существования отклика
     application = crud.get_vacancy_application(
         db, application_id=application_id, vacancy_id=vacancy_id
     )
@@ -390,15 +415,13 @@ def update_application_status(
             detail="Отклик не найден"
         )
 
-    # Валидация статуса
     allowed_statuses = ["new", "reviewed", "accepted", "rejected"]
     if status_update.status not in allowed_statuses:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Недопустимый статус. Разрешены: {', '.join(allowed_statuses)}"
+            detail=f"Недопустимый статус"
         )
 
-    # Обновление статуса
     updated_application = crud.update_vacancy_application_status(
         db, application_id=application_id, status=status_update.status
     )
@@ -412,9 +435,7 @@ def delete_my_application(
         db: Session = Depends(get_db),
         current_user: models.User = Depends(get_current_user)
 ):
-    """
-    Удаление своего отклика на вакансию
-    """
+    """Удалить отклик"""
     success = crud.delete_vacancy_application(
         db, application_id=application_id, user_id=current_user.id
     )
@@ -422,10 +443,36 @@ def delete_my_application(
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Отклик не найден или не принадлежит вам"
+            detail="Отклик не найден"
         )
 
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-from sqlalchemy import func
-from typing import Optional, List
+# ========== СТАТИСТИКА ==========
+
+@router.get("/stats/summary")
+def get_vacancies_summary(
+        db: Session = Depends(get_db),
+        current_user: models.User = Depends(get_current_user)
+):
+    """Общая статистика"""
+    if not current_user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Недостаточно прав"
+        )
+
+    return crud.get_vacancies_stats(db)
+
+
+@router.get("/stats/by-profession")
+def get_vacancies_by_profession(db: Session = Depends(get_db)):
+    """Статистика по профессиям"""
+    return crud.get_vacancies_by_profession(db)
+
+
+@router.get("/stats/by-city")
+def get_vacancies_by_city(db: Session = Depends(get_db)):
+    """Статистика по городам"""
+    return crud.get_vacancies_by_city(db)

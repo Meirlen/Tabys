@@ -3,7 +3,6 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.sql.expression import text
 from sqlalchemy.sql.sqltypes import TIMESTAMP
 from typing import List, Optional
-from enum import Enum as PyEnum
 
 from app.database import Base
 from pydantic_settings import BaseSettings
@@ -19,9 +18,7 @@ Base = declarative_base()
 
 
 # Enums
-class UserTypeEnum(enum.Enum):
-    INDIVIDUAL = "individual"
-    ORGANIZATION = "organization"
+
 
 class ServiceStatusEnum(enum.Enum):
     ACTIVE = "active"
@@ -79,53 +76,60 @@ class HashOtps(Base):
     status = Column(String,nullable=False,server_default='start')
 
 
-
-
-
-
-
-from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey, LargeBinary,Date
-from sqlalchemy.orm import relationship
+from sqlalchemy import Column, Integer, String, Text, Boolean, Date, DateTime, ForeignKey, Table
 from app.database import Base
+
+# Таблица связи для навыков (многие-ко-многим)
+vacancy_skills = Table(
+    'vacancy_skills',
+    Base.metadata,
+    Column('vacancy_id', Integer, ForeignKey('vacancies_new.id', ondelete='CASCADE'), primary_key=True),
+    Column('skill_id', Integer, ForeignKey('skills.id', ondelete='CASCADE'), primary_key=True)
+)
 
 
 class Vacancy(Base):
-    __tablename__ = "vacancies_new"
+    __tablename__ = "vacancies_new_2025_"
 
     id = Column(Integer, primary_key=True, index=True)
-    # Multilingual fields
-    title_kz = Column(String, nullable=False)
-    title_ru = Column(String, nullable=False)
-    location_kz = Column(String, nullable=True)
-    location_ru = Column(String, nullable=True)
+
+    # Ссылки на справочники (просто ID)
+    profession_id = Column(Integer, ForeignKey('professions.id'), nullable=True, index=True)
+    city_id = Column(Integer, ForeignKey('cities.id'), nullable=True, index=True)
+
+    # Multilingual fields (оставляем для совместимости)
+    title_kz = Column(String, nullable=True)
+    title_ru = Column(String, nullable=True)
     description_kz = Column(Text, nullable=False)
     description_ru = Column(Text, nullable=False)
     requirements_kz = Column(Text, nullable=True)
     requirements_ru = Column(Text, nullable=True)
 
     # Common fields
-    employment_type = Column(String, nullable=True)
-    work_type = Column(String, nullable=True)
+    employment_type = Column(String, nullable=True, index=True)
+    work_type = Column(String, nullable=True, index=True)
     salary = Column(Integer, nullable=True)
+    salary_min = Column(Integer, nullable=True, index=True)
+    salary_max = Column(Integer, nullable=True, index=True)
+    experience_years = Column(Integer, nullable=True)
     contact_email = Column(String, nullable=True)
-    is_active = Column(Boolean, default=True)
+    contact_phone = Column(String, nullable=True)
+    company_name = Column(String, nullable=True)
+    is_active = Column(Boolean, default=True, index=True)
     deadline = Column(Date, nullable=True)
     created_at = Column(DateTime, nullable=False)
     updated_at = Column(DateTime, nullable=True)
-
-    # Отношение к откликам на вакансию
-
 
 
 class VacancyApplication(Base):
     __tablename__ = "vacancy_applications_v2"
 
     id = Column(Integer, primary_key=True, index=True)
-    vacancy_id = Column(Integer, ForeignKey("vacancies_new.id"), nullable=False)
-    user_id = Column(Integer, nullable=False)  # ID пользователя, который подает отклик
-    resume_id = Column(Integer, ForeignKey("resumes_.id"), nullable=False)  # ID выбранного резюме
-    cover_letter = Column(Text, nullable=True)  # Сопроводительное письмо (опционально)
-    status = Column(String, default="new")  # new, reviewed, accepted, rejected
+    vacancy_id = Column(Integer, ForeignKey("vacancies_new_2025.id", ondelete='CASCADE'), nullable=False, index=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    resume_id = Column(Integer, ForeignKey("resumes_.id", ondelete='SET NULL'), nullable=True, index=True)
+    cover_letter = Column(Text, nullable=True)
+    status = Column(String, default="new", index=True)
     created_at = Column(DateTime, nullable=False)
     updated_at = Column(DateTime, nullable=True)
 
@@ -379,11 +383,11 @@ class CourseTestResult(Base):
 
 
 class User(Base):
-    __tablename__ = "users_"
+    __tablename__ = "users_2026_12"
 
     id = Column(Integer, primary_key=True, nullable=False)
     phone_number = Column(String, unique=True, nullable=False)
-    user_type = Column(Enum(UserTypeEnum), nullable=False)
+    user_type = Column(String, nullable=False)
     service_status = Column(Enum(ServiceStatusEnum), default=ServiceStatusEnum.ACTIVE, nullable=False)
     is_verified = Column(Boolean, default=False)
     created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=text('now()'))
@@ -584,3 +588,10 @@ class Admin(Base):
     password = Column(String, nullable=True)
     created_at = Column(TIMESTAMP(timezone=True),
                             nullable=False, server_default=text('now()'))
+
+
+
+
+
+
+

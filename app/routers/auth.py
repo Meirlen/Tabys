@@ -62,7 +62,7 @@ def check_profile(login_data: schemas.LoginRequest, db: Session = Depends(get_db
         return {
             "profile_exists": True,
             "message": "OTP код отправлен на ваш номер в WhatsApp",
-            "user_type": user.user_type.value
+            "user_type": user.user_type
         }
     else:
         # Пользователь не найден - нужна регистрация
@@ -167,7 +167,7 @@ def verify_otp(otp_data: schemas.OtpRequest, db: Session = Depends(get_db)):
         "user_data": {
             "id": user.id,
             "phone_number": user.phone_number,
-            "user_type": user.user_type.value,
+            "user_type": user.user_type,
             "service_status": user.service_status.value,
             "is_verified": user.is_verified
         }
@@ -235,13 +235,13 @@ async def register_individual(
 
         # Если User есть, но Individual нет - используем существующего User
         new_user = existing_user
-        new_user.user_type = models.UserTypeEnum.INDIVIDUAL
+        new_user.user_type =  "individual"
         db.commit()
     else:
         # Создаем нового пользователя
         new_user = models.User(
             phone_number=phone_number,
-            user_type=models.UserTypeEnum.INDIVIDUAL
+            user_type= "individual"
         )
         db.add(new_user)
         db.commit()
@@ -277,7 +277,7 @@ async def register_individual(
         "user_data": {
             "id": new_user.id,
             "phone_number": new_user.phone_number,
-            "user_type": new_user.user_type.value,
+            "user_type": new_user.user_type,
             "service_status": new_user.service_status.value,
             "is_verified": new_user.is_verified
         }
@@ -311,13 +311,13 @@ def register_organization(
 
         # Если User есть, но Organization нет - используем существующего User
         new_user = existing_user
-        new_user.user_type = models.UserTypeEnum.ORGANIZATION
+        new_user.user_type = "organization"
         db.commit()
     else:
         # Создаем нового пользователя
         new_user = models.User(
             phone_number=org_data.phone_number,
-            user_type=models.UserTypeEnum.ORGANIZATION
+            user_type="organization"
         )
         db.add(new_user)
         db.commit()
@@ -348,7 +348,7 @@ def register_organization(
         "user_data": {
             "id": new_user.id,
             "phone_number": new_user.phone_number,
-            "user_type": new_user.user_type.value,
+            "user_type": new_user.user_type,
             "service_status": new_user.service_status.value,
             "is_verified": new_user.is_verified
         }
