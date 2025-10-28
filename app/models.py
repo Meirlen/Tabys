@@ -83,7 +83,7 @@ from app.database import Base
 vacancy_skills = Table(
     'vacancy_skills',
     Base.metadata,
-    Column('vacancy_id', Integer, ForeignKey('vacancies_new.id', ondelete='CASCADE'), primary_key=True),
+    Column('vacancy_id', Integer, ForeignKey('vacancies_new_2025_.id', ondelete='CASCADE'), primary_key=True),
     Column('skill_id', Integer, ForeignKey('skills.id', ondelete='CASCADE'), primary_key=True)
 )
 
