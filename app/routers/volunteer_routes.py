@@ -23,9 +23,9 @@ def get_volunteer_dashboard(
 ):
     """
     Главная страница личного кабинета волонтера
-    """
-    if current_user.user_type != "VOLUNTEER":
-        raise HTTPException(status_code=403, detail="Только для волонтеров")
+    # """
+    # if current_user.user_type != "VOLUNTEER":
+    #     raise HTTPException(status_code=403, detail="Только для волонтеров")
 
     volunteer = db.query(Volunteer).filter(Volunteer.user_id == current_user.id).first()
     if not volunteer:
