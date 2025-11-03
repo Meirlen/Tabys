@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Depends, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from app.routers import experts, auth,volunteer_auth, vacancies, admin_auth_router,resume_routes,leisure_routes, events, certificates, projects
+from app.routers import experts, auth,volunteer_auth,volunteer_admin_routes,volunteer_routes, vacancies, admin_auth_router,resume_routes,leisure_routes, events, certificates, projects
 from app.routers import courses_router
 from app.database import engine, Base
 
@@ -86,6 +86,8 @@ app.include_router(admin_auth_router.router)
 app.include_router(resume_routes.router)
 app.include_router(leisure_routes.router)
 app.include_router(volunteer_auth.router)
+app.include_router(volunteer_routes.router)
+app.include_router(volunteer_admin_routes.router)
 
 
 # Корневой маршрут

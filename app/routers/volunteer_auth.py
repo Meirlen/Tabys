@@ -61,50 +61,61 @@ def check_volunteer_profile(login_data: schemas.LoginRequest, db: Session = Depe
 
     # Ищем пользователя
     user = db.query(models.User).filter(
-        models.User.phone_number == phone_number,
-        models.User.user_type == "VOLUNTEER"
+        models.User.phone_number == phone_number
     ).first()
 
     if user:
-        # Волонтёр найден - отправляем OTP для авторизации
-        otp_code = generate_otp_code()
+        # Проверяем, есть ли профиль волонтера
+        volunteer = db.query(Volunteer).filter(
+            Volunteer.user_id == user.id
+        ).first()
 
-        # Деактивируем старые коды для этого номера
-        db.query(models.OtpCode).filter(
-            models.OtpCode.phone_number == phone_number,
-            models.OtpCode.is_used == False
-        ).update({"is_used": True})
+        if volunteer:
+            # Волонтёр найден - отправляем OTP для авторизации
+            otp_code = generate_otp_code()
 
-        # Создаем новый OTP код
-        expires_at = datetime.utcnow() + timedelta(minutes=5)
-        new_otp = models.OtpCode(
-            phone_number=phone_number,
-            code=otp_code,
-            expires_at=expires_at
-        )
+            # Деактивируем старые коды для этого номера
+            db.query(models.OtpCode).filter(
+                models.OtpCode.phone_number == phone_number,
+                models.OtpCode.is_used == False
+            ).update({"is_used": True})
 
-        db.add(new_otp)
-        db.commit()
+            # Создаем новый OTP код
+            expires_at = datetime.utcnow() + timedelta(minutes=5)
+            new_otp = models.OtpCode(
+                phone_number=phone_number,
+                code=otp_code,
+                expires_at=expires_at
+            )
 
-        # TODO: Отправка в WhatsApp
-        # from app.routers.whatsapp_sender import send_whatsapp_message
-        # send_whatsapp_message(phone_number, otp_code)
-        print(f"DEBUG: OTP код для волонтёра {phone_number}: {otp_code}")
+            db.add(new_otp)
+            db.commit()
 
-        return {
-            "profile_exists": True,
-            "message": "OTP код отправлен на ваш номер в WhatsApp",
-            "user_type": "VOLUNTEER"
-        }
+            print(f"DEBUG: OTP код для волонтёра {phone_number}: {otp_code}")
+
+            return {
+                "profile_exists": True,
+                "message": "OTP код отправлен на ваш номер в WhatsApp",
+                "user_type": "VOLUNTEER",
+                "has_other_roles": user.user_type != "VOLUNTEER"
+            }
+        else:
+            # Пользователь есть, но профиля волонтера нет
+            return {
+                "profile_exists": False,
+                "user_exists": True,
+                "message": "У вас есть аккаунт, но нет профиля волонтера. Создайте профиль волонтера"
+            }
     else:
-        # Волонтёр не найден - нужна регистрация
+        # Пользователь не найден - нужна полная регистрация
         return {
             "profile_exists": False,
-            "message": "Профиль волонтёра не найден. Необходимо зарегистрироваться"
+            "user_exists": False,
+            "message": "Профиль не найден. Необходимо зарегистрироваться"
         }
 
 
-# Регистрация волонтёра
+# Регистрация нового волонтёра (только для новых пользователей)
 @router.post("/register")
 def register_volunteer(
         phone_number: str = Form(...),
@@ -114,7 +125,8 @@ def register_volunteer(
         db: Session = Depends(get_db)
 ):
     """
-    Регистрация волонтёра
+    Регистрация НОВОГО волонтёра (создание User + Volunteer)
+    Используется только для пользователей, у которых нет аккаунта
     """
     # Проверяем существующего пользователя
     existing_user = db.query(models.User).filter(
@@ -122,7 +134,7 @@ def register_volunteer(
     ).first()
 
     if existing_user:
-        # Проверяем, есть ли уже Volunteer данные
+        # Если пользователь уже существует - отправляем на другой эндпоинт
         volunteer_data = db.query(Volunteer).filter(
             Volunteer.user_id == existing_user.id
         ).first()
@@ -132,28 +144,28 @@ def register_volunteer(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Волонтёр с таким номером уже зарегистрирован"
             )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Пользователь с таким номером уже существует. Используйте эндпоинт /create-volunteer-profile для добавления роли волонтера"
+            )
 
-        # Если User есть, но Volunteer нет - используем существующего User
-        new_user = existing_user
-        new_user.user_type = "VOLUNTEER"
-        db.commit()
-    else:
-        # Создаем нового пользователя
-        new_user = models.User(
-            phone_number=phone_number,
-            user_type="VOLUNTEER"
-        )
-        db.add(new_user)
-        db.commit()
-        db.refresh(new_user)
+    # Создаем нового пользователя
+    new_user = models.User(
+        phone_number=phone_number,
+        user_type="VOLUNTEER"
+    )
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
 
-    # Создаем запись волонтёра (начальный статус - VOLUNTEER)
+    # Создаем запись волонтёра
     volunteer = Volunteer(
         user_id=new_user.id,
         full_name=full_name,
         corps_id=corps_id,
         direction_id=direction_id,
-        volunteer_status="VOLUNTEER"  # Начальный статус
+        volunteer_status="VOLUNTEER"
     )
     db.add(volunteer)
 
@@ -176,6 +188,78 @@ def register_volunteer(
             "volunteer_status": volunteer.volunteer_status,
             "is_verified": new_user.is_verified
         }
+    }
+
+
+# НОВЫЙ ЭНДПОИНТ: Создание профиля волонтера для существующего пользователя
+@router.post("/create-volunteer-profile")
+def create_volunteer_profile(
+        full_name: str = Form(...),
+        corps_id: int = Form(...),
+        direction_id: int = Form(...),
+        current_user: models.User = Depends(oauth2.get_current_user),
+        db: Session = Depends(get_db)
+):
+    """
+    Создает профиль волонтера для существующего пользователя.
+    Используется когда пользователь уже зарегистрирован под другой ролью
+    и хочет стать волонтером параллельно.
+    """
+    # Проверяем, есть ли уже профиль волонтера
+    existing_volunteer = db.query(Volunteer).filter(
+        Volunteer.user_id == current_user.id
+    ).first()
+
+    if existing_volunteer:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="У вас уже есть профиль волонтера"
+        )
+
+    # Создаем профиль волонтера
+    volunteer = Volunteer(
+        user_id=current_user.id,
+        full_name=full_name,
+        corps_id=corps_id,
+        direction_id=direction_id,
+        volunteer_status="VOLUNTEER"
+    )
+    db.add(volunteer)
+    db.commit()
+    db.refresh(volunteer)
+
+    return {
+        "message": "Профиль волонтера создан успешно",
+        "volunteer_data": {
+            "id": volunteer.id,
+            "user_id": current_user.id,
+            "full_name": volunteer.full_name,
+            "corps_id": volunteer.corps_id,
+            "direction_id": volunteer.direction_id,
+            "volunteer_status": volunteer.volunteer_status,
+            "created_at": volunteer.created_at
+        },
+        "note": f"Ваша основная роль ({current_user.user_type}) сохранена. Теперь вы также волонтер!"
+    }
+
+
+# Проверка наличия профиля волонтера у текущего пользователя
+@router.get("/has-profile")
+def check_has_volunteer_profile(
+        current_user: models.User = Depends(oauth2.get_current_user),
+        db: Session = Depends(get_db)
+):
+    """
+    Проверяет, есть ли у текущего авторизованного пользователя профиль волонтера
+    """
+    volunteer = db.query(Volunteer).filter(
+        Volunteer.user_id == current_user.id
+    ).first()
+
+    return {
+        "has_volunteer_profile": volunteer is not None,
+        "primary_role": current_user.user_type,
+        "phone_number": current_user.phone_number
     }
 
 
@@ -212,22 +296,27 @@ def verify_volunteer_otp(otp_data: schemas.OtpRequest, db: Session = Depends(get
     otp_record.is_used = True
     db.commit()
 
-    # Ищем пользователя-волонтёра
+    # Ищем пользователя
     user = db.query(models.User).filter(
-        models.User.phone_number == otp_data.phone_number,
-        models.User.user_type == "VOLUNTEER"
+        models.User.phone_number == otp_data.phone_number
     ).first()
 
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Волонтёр не найден. Необходимо зарегистрироваться"
+            detail="Пользователь не найден"
         )
 
     # Получаем данные волонтёра
     volunteer = db.query(Volunteer).filter(
         Volunteer.user_id == user.id
     ).first()
+
+    if not volunteer:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Профиль волонтёра не найден. Необходимо создать профиль"
+        )
 
     # Обновляем статус верификации
     user.is_verified = True
@@ -242,9 +331,10 @@ def verify_volunteer_otp(otp_data: schemas.OtpRequest, db: Session = Depends(get
         "user_data": {
             "id": user.id,
             "phone_number": user.phone_number,
-            "user_type": "VOLUNTEER",
-            "volunteer_status": volunteer.volunteer_status if volunteer else "VOLUNTEER",
-            "is_verified": user.is_verified
+            "primary_role": user.user_type,
+            "volunteer_status": volunteer.volunteer_status,
+            "is_verified": user.is_verified,
+            "has_multiple_roles": user.user_type != "VOLUNTEER"
         }
     }
 
@@ -256,16 +346,9 @@ def get_volunteer_profile(
         db: Session = Depends(get_db)
 ):
     """
-    Получает профиль текущего волонтёра
+    Получает профиль волонтёра текущего пользователя
     """
-    # Проверяем, что пользователь - волонтёр
-    if current_user.user_type != "VOLUNTEER":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Доступ только для волонтёров"
-        )
-
-    # Получаем данные волонтёра
+    # Получаем данные волонтёра (не проверяем user_type, так как теперь могут быть множественные роли)
     volunteer = db.query(Volunteer).filter(
         Volunteer.user_id == current_user.id
     ).first()
@@ -273,7 +356,7 @@ def get_volunteer_profile(
     if not volunteer:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Данные волонтёра не найдены"
+            detail="Профиль волонтёра не найден"
         )
 
     return {
@@ -284,6 +367,8 @@ def get_volunteer_profile(
         "corps_id": volunteer.corps_id,
         "direction_id": volunteer.direction_id,
         "volunteer_status": volunteer.volunteer_status,
+        "primary_role": current_user.user_type,
+        "has_multiple_roles": current_user.user_type != "VOLUNTEER",
         "created_at": volunteer.created_at,
         "updated_at": volunteer.updated_at
     }
@@ -301,13 +386,6 @@ def update_volunteer_profile(
     """
     Обновляет профиль волонтёра
     """
-    # Проверяем, что пользователь - волонтёр
-    if current_user.user_type != "VOLUNTEER":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Доступ только для волонтёров"
-        )
-
     # Получаем данные волонтёра
     volunteer = db.query(Volunteer).filter(
         Volunteer.user_id == current_user.id
@@ -316,7 +394,7 @@ def update_volunteer_profile(
     if not volunteer:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Данные волонтёра не найдены"
+            detail="Профиль волонтёра не найден"
         )
 
     # Обновляем данные
