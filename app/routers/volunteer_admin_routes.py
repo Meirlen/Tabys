@@ -578,7 +578,6 @@ def get_volunteer_stats(
 @router.get("/volunteers")
 def get_all_volunteers(
         status_filter: Optional[str] = None,
-        corps_id: Optional[int] = None,
         direction_id: Optional[int] = None,
         skip: int = 0,
         limit: int = 100,
@@ -590,8 +589,7 @@ def get_all_volunteers(
     # Фильтры
     if status_filter:
         query = query.filter(Volunteer.volunteer_status == status_filter)
-    if corps_id:
-        query = query.filter(Volunteer.corps_id == corps_id)
+
     if direction_id:
         query = query.filter(Volunteer.direction_id == direction_id)
 
@@ -619,7 +617,6 @@ def get_all_volunteers(
             "phone_number": user.phone_number if user else None,
             "volunteer_status": volunteer.volunteer_status,
             "v_coins_balance": balance.current_balance if balance else 0,
-            "corps_id": volunteer.corps_id,
             "direction_id": volunteer.direction_id,
             "created_at": volunteer.created_at,
             "events_participated": balance.events_participated if balance else 0,

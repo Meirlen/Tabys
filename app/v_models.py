@@ -91,7 +91,7 @@ class VolunteerEvent(Base):
 
 # === ЗАЯВКИ НА МЕРОПРИЯТИЯ ===
 class EventApplication(Base):
-    __tablename__ = "event_applications"
+    __tablename__ = "event_applications2"
 
     id = Column(Integer, primary_key=True, index=True)
     event_id = Column(Integer, nullable=False)

@@ -48,6 +48,7 @@ def register_admin(admin_data: schemas.AdminRegister, db: Session = Depends(get_
     # Создаем нового администратора
     new_admin = models.Admin(
         name=admin_data.name,
+        role=admin_data.role,
         login=admin_data.login,
         password=hashed_password
     )
@@ -92,6 +93,7 @@ def login_admin(login_data: schemas.AdminLogin, db: Session = Depends(get_db)):
             "id": admin.id,
             "name": admin.name,
             "login": admin.login,
+            "role": admin.role,  # ДОБАВЛЕНО: отправляем роль на frontend
             "created_at": admin.created_at
         }
     }
@@ -106,6 +108,7 @@ def get_admin_profile(db: Session = Depends(get_db), current_admin: models.Admin
         "id": current_admin.id,
         "name": current_admin.name,
         "login": current_admin.login,
+        "role": current_admin.role,  # ДОБАВЛЕНО: отправляем роль
         "created_at": current_admin.created_at
     }
 
@@ -139,14 +142,22 @@ def get_all_admins(
         current_admin: models.Admin = Depends(oauth2.get_current_admin)
 ):
     """
-    Получение списка всех администраторов (доступно только для админов)
+    Получение списка всех администраторов (доступно только для супер-админов)
     """
+    # Проверяем, что текущий админ - супер-админ
+    if current_admin.role != "super_admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="У вас нет доступа к этому разделу"
+        )
+
     admins = db.query(models.Admin).all()
     return [
         {
             "id": admin.id,
             "name": admin.name,
             "login": admin.login,
+            "role": admin.role,
             "created_at": admin.created_at
         }
         for admin in admins

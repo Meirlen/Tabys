@@ -581,10 +581,11 @@ class Certificate(Base):
 
 
 class Admin(Base):
-    __tablename__ = "adminstrators_shaqyru"
+    __tablename__ = "adminstrators_shaqyru1"
     id = Column(Integer, primary_key=True, nullable=False)
     name = Column(String, nullable=False)
     login = Column(String, nullable=True)
+    role= Column(String, nullable=True)
     password = Column(String, nullable=True)
     created_at = Column(TIMESTAMP(timezone=True),
                             nullable=False, server_default=text('now()'))

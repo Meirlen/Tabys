@@ -1155,6 +1155,7 @@ class AdminBase(BaseModel):
 
 class AdminRegister(AdminBase):
     password: str = Field(..., min_length=6, max_length=100, description="Пароль администратора")
+    role: str = Field(..., min_length=6, max_length=100, description="Роль администратора")
 
 class AdminLogin(BaseModel):
     login: str = Field(..., description="Логин администратора")
