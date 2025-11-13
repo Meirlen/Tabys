@@ -1007,3 +1007,188 @@ def cancel_purchase(
         "refunded_amount": purchase.v_coins_spent
     }
 
+
+# === УПРАВЛЕНИЕ ТРЕБОВАНИЯМИ СТАТУСОВ ===
+
+@router.get("/status-requirements")
+def get_status_requirements(
+        db: Session = Depends(get_db),
+):
+    """
+    Получить все требования для статусов
+    """
+    requirements = db.query(StatusRequirement).order_by(StatusRequirement.level).all()
+
+    if not requirements:
+        # Если таблица пустая - создаём дефолтные значения
+        default_statuses = [
+            {
+                "status": "VOLUNTEER",
+                "title_ru": "Волонтер",
+                "title_kz": "Волонтер",
+                "level": 1,
+                "v_coins_required": 0,  # Стартовый статус
+                "benefits_ru": "Базовый статус",
+                "benefits_kz": "Негізгі мәртебе"
+            },
+            {
+                "status": "TEAM_LEADER",
+                "title_ru": "Тимлидер",
+                "title_kz": "Топ жетекшісі",
+                "level": 2,
+                "v_coins_required": 150,
+                "benefits_ru": "Доступ к роли тимлидера, Управление командой, Больше бонусов",
+                "benefits_kz": "Топ жетекшісі рөліне қол жеткізу, Команданы басқару, Көбірек бонустар"
+            },
+            {
+                "status": "SUPERVISOR",
+                "title_ru": "Супервайзер",
+                "title_kz": "Супервайзер",
+                "level": 3,
+                "v_coins_required": 200,
+                "benefits_ru": "Доступ к роли супервайзера, Контроль проектов, VIP плюшки",
+                "benefits_kz": "Супервайзер рөліне қол жеткізу, Жобаларды бақылау, VIP артықшылықтар"
+            },
+            {
+                "status": "COORDINATOR",
+                "title_ru": "Координатор",
+                "title_kz": "Үйлестіруші",
+                "level": 4,
+                "v_coins_required": 300,
+                "benefits_ru": "Высший статус, Координация программ, Все привилегии",
+                "benefits_kz": "Жоғары мәртебе, Бағдарламаларды үйлестіру, Барлық артықшылықтар"
+            }
+        ]
+
+        for status_data in default_statuses:
+            new_req = StatusRequirement(**status_data)
+            db.add(new_req)
+
+        db.commit()
+        requirements = db.query(StatusRequirement).order_by(StatusRequirement.level).all()
+
+    return {
+        "status_requirements": [
+            {
+                "id": req.id,
+                "status": req.status,
+                "title_ru": req.title_ru,
+                "title_kz": req.title_kz,
+                "level": req.level,
+                "v_coins_required": req.v_coins_required,
+                "benefits_ru": req.benefits_ru,
+                "benefits_kz": req.benefits_kz
+            }
+            for req in requirements
+        ]
+    }
+
+
+@router.put("/status-requirements/{status}")
+def update_status_requirement(
+        status: str,  # VOLUNTEER, TEAM_LEADER, SUPERVISOR, COORDINATOR
+        data: StatusRequirementUpdate,
+        db: Session = Depends(get_db),
+):
+    """
+    Обновить требования для статуса
+
+    Пример:
+    PUT /api/v2/admin/volunteer/status-requirements/TEAM_LEADER
+    {
+        "v_coins_required": 200,
+        "benefits_ru": "Новые преимущества",
+        "benefits_kz": "Жаңа артықшылықтар"
+    }
+    """
+    requirement = db.query(StatusRequirement).filter(
+        StatusRequirement.status == status
+    ).first()
+
+    if not requirement:
+        raise HTTPException(status_code=404, detail="Статус не найден")
+
+    # Обновляем только переданные поля
+    if data.v_coins_required is not None:
+        requirement.v_coins_required = data.v_coins_required
+
+    if data.benefits_ru is not None:
+        requirement.benefits_ru = data.benefits_ru
+
+    if data.benefits_kz is not None:
+        requirement.benefits_kz = data.benefits_kz
+
+    requirement.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(requirement)
+
+    return {
+        "message": f"Требования для статуса {status} обновлены",
+        "requirement": {
+            "status": requirement.status,
+            "title_ru": requirement.title_ru,
+            "level": requirement.level,
+            "v_coins_required": requirement.v_coins_required,
+            "benefits_ru": requirement.benefits_ru,
+            "benefits_kz": requirement.benefits_kz
+        }
+    }
+
+
+@router.post("/status-requirements/reset-defaults")
+def reset_status_requirements(
+        db: Session = Depends(get_db),
+):
+    """
+    Сбросить требования к дефолтным значениям
+    """
+    # Удаляем все существующие
+    db.query(StatusRequirement).delete()
+
+    # Создаём дефолтные
+    default_statuses = [
+        {
+            "status": "VOLUNTEER",
+            "title_ru": "Волонтер",
+            "title_kz": "Волонтер",
+            "level": 1,
+            "v_coins_required": 0,
+            "benefits_ru": "Базовый статус",
+            "benefits_kz": "Негізгі мәртебе"
+        },
+        {
+            "status": "TEAM_LEADER",
+            "title_ru": "Тимлидер",
+            "title_kz": "Топ жетекшісі",
+            "level": 2,
+            "v_coins_required": 150,
+            "benefits_ru": "Доступ к роли тимлидера, Управление командой, Больше бонусов",
+            "benefits_kz": "Топ жетекшісі рөліне қол жеткізу, Команданы басқару, Көбірек бонустар"
+        },
+        {
+            "status": "SUPERVISOR",
+            "title_ru": "Супервайзер",
+            "title_kz": "Супервайзер",
+            "level": 3,
+            "v_coins_required": 200,
+            "benefits_ru": "Доступ к роли супервайзера, Контроль проектов, VIP плюшки",
+            "benefits_kz": "Супервайзер рөліне қол жеткізу, Жобаларды бақылау, VIP артықшылықтар"
+        },
+        {
+            "status": "COORDINATOR",
+            "title_ru": "Координатор",
+            "title_kz": "Үйлестіруші",
+            "level": 4,
+            "v_coins_required": 300,
+            "benefits_ru": "Высший статус, Координация программ, Все привилегии",
+            "benefits_kz": "Жоғары мәртебе, Бағдарламаларды үйлестіру, Барлық артықшылықтар"
+        }
+    ]
+
+    for status_data in default_statuses:
+        new_req = StatusRequirement(**status_data)
+        db.add(new_req)
+
+    db.commit()
+
+    return {"message": "Требования сброшены к дефолтным значениям"}

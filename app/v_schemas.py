@@ -94,3 +94,12 @@ class BenefitPurchaseCreate(BaseModel):
 # === PROMOTION SCHEMAS ===
 class PromotionRequestCreate(BaseModel):
     requested_status: str
+
+
+from pydantic import BaseModel
+from typing import Optional
+
+class StatusRequirementUpdate(BaseModel):
+    v_coins_required: int
+    benefits_ru: Optional[str] = None
+    benefits_kz: Optional[str] = None

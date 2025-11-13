@@ -31,14 +31,16 @@ import enum
 
 # Модель волонтёра БЕЗ foreign key
 class Volunteer(Base):
-    __tablename__ = "volunteers_"
+    __tablename__ = "volunteers_13"
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, unique=True, nullable=False)  # БЕЗ ForeignKey!
 
     # Основные данные
+    ava_url = Column(String, nullable=False)
     full_name = Column(String, nullable=False)
-    corps_id = Column(Integer, nullable=False)
+    bio =  Column(String, nullable=False)
+    age =  Column(Integer, nullable=False)
     direction_id = Column(Integer, nullable=False)
 
     # Статус волонтёра (простая строка)
@@ -327,3 +329,34 @@ class Direction(Base):
 
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+# Добавь эту модель в твой v_models.py
+
+# === ТРЕБОВАНИЯ ДЛЯ СТАТУСОВ ===
+class StatusRequirement(Base):
+    """
+    Хранит требования V-coins для каждого статуса волонтёра
+    """
+    __tablename__ = "status_requirements"
+
+    id = Column(Integer, primary_key=True, index=True)
+    status = Column(String, unique=True, nullable=False)  # VOLUNTEER, TEAM_LEADER, SUPERVISOR, COORDINATOR
+
+    # Название статуса
+    title_ru = Column(String, nullable=False)
+    title_kz = Column(String, nullable=False)
+    level = Column(Integer, nullable=False)  # 1, 2, 3, 4
+
+    # Требования для ПОЛУЧЕНИЯ этого статуса
+    v_coins_required = Column(Integer, default=0)  # Сколько нужно V-coins
+
+    # Описание преимуществ статуса
+    benefits_ru = Column(Text)  # JSON или текст через запятую
+    benefits_kz = Column(Text)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    def __repr__(self):
+        return f"<StatusRequirement {self.status}: {self.v_coins_required} V-coins>"

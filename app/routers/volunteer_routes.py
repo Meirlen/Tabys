@@ -65,7 +65,6 @@ def get_volunteer_dashboard(
             "id": volunteer.id,
             "full_name": volunteer.full_name,
             "status": volunteer.volunteer_status,
-            "corps_id": volunteer.corps_id,
             "direction_id": volunteer.direction_id
         },
         "balance": {
