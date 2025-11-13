@@ -34,22 +34,7 @@ async def save_avatar(photo: UploadFile) -> str:
     return f"/{file_path}"
 
 
-# Справочники остаются без изменений
-@router.get("/corps")
-def get_volunteer_corps():
-    """Получает список корпусов для волонтёров"""
-    return [
-        {"id": 1, "name_ru": "Волонтёры Победы", "name_kz": "Жеңіс волонтерлері"},
-        {"id": 2, "name_ru": "Волонтёры-медики", "name_kz": "Медициналық волонтерлер"},
-        {"id": 3, "name_ru": "Волонтёры культуры", "name_kz": "Мәдениет волонтерлері"},
-        {"id": 4, "name_ru": "Серебряные волонтёры", "name_kz": "Күміс волонтерлер"},
-        {"id": 5, "name_ru": "Экологические волонтёры", "name_kz": "Экологиялық волонтерлер"},
-        {"id": 6, "name_ru": "Спортивные волонтёры", "name_kz": "Спорттық волонтерлер"},
-        {"id": 7, "name_ru": "Киберволонтёры", "name_kz": "Киберволонтерлер"},
-        {"id": 8, "name_ru": "Другое", "name_kz": "Басқа"}
-    ]
-
-
+# Справочники
 @router.get("/directions")
 def get_volunteer_directions():
     """Получает список направлений для волонтёров"""
@@ -125,7 +110,8 @@ def check_volunteer_profile(login_data: schemas.LoginRequest, db: Session = Depe
 async def register_volunteer(
         phone_number: str = Form(...),
         full_name: str = Form(...),
-        corps_id: int = Form(...),
+        age: int = Form(...),
+        bio: str = Form(...),
         direction_id: int = Form(...),
         avatar: UploadFile = File(...),
         db: Session = Depends(get_db)
@@ -154,6 +140,20 @@ async def register_volunteer(
                 detail="Пользователь с таким номером уже существует. Используйте эндпоинт /create-volunteer-profile"
             )
 
+    # Валидация возраста
+    if age < 14 or age > 100:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Возраст должен быть от 14 до 100 лет"
+        )
+
+    # Валидация био
+    if len(bio) < 10:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Расскажите о себе более подробно (минимум 10 символов)"
+        )
+
     # Сохраняем аватар
     ava_url = await save_avatar(avatar)
 
@@ -171,7 +171,8 @@ async def register_volunteer(
         user_id=new_user.id,
         ava_url=ava_url,
         full_name=full_name,
-        corps_id=corps_id,
+        age=age,
+        bio=bio,
         direction_id=direction_id,
         volunteer_status="VOLUNTEER"
     )
@@ -193,7 +194,10 @@ async def register_volunteer(
             "user_type": "VOLUNTEER",
             "volunteer_status": volunteer.volunteer_status,
             "is_verified": new_user.is_verified,
-            "ava_url": volunteer.ava_url
+            "ava_url": volunteer.ava_url,
+            "full_name": volunteer.full_name,
+            "age": volunteer.age,
+            "bio": volunteer.bio
         }
     }
 
@@ -201,7 +205,8 @@ async def register_volunteer(
 @router.post("/create-volunteer-profile")
 async def create_volunteer_profile(
         full_name: str = Form(...),
-        corps_id: int = Form(...),
+        age: int = Form(...),
+        bio: str = Form(...),
         direction_id: int = Form(...),
         avatar: UploadFile = File(...),
         current_user: models.User = Depends(oauth2.get_current_user),
@@ -221,6 +226,20 @@ async def create_volunteer_profile(
             detail="У вас уже есть профиль волонтера"
         )
 
+    # Валидация возраста
+    if age < 14 or age > 100:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Возраст должен быть от 14 до 100 лет"
+        )
+
+    # Валидация био
+    if len(bio) < 10:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Расскажите о себе более подробно (минимум 10 символов)"
+        )
+
     # Сохраняем аватар
     ava_url = await save_avatar(avatar)
 
@@ -229,7 +248,8 @@ async def create_volunteer_profile(
         user_id=current_user.id,
         ava_url=ava_url,
         full_name=full_name,
-        corps_id=corps_id,
+        age=age,
+        bio=bio,
         direction_id=direction_id,
         volunteer_status="VOLUNTEER"
     )
@@ -244,7 +264,8 @@ async def create_volunteer_profile(
             "user_id": current_user.id,
             "full_name": volunteer.full_name,
             "ava_url": volunteer.ava_url,
-            "corps_id": volunteer.corps_id,
+            "age": volunteer.age,
+            "bio": volunteer.bio,
             "direction_id": volunteer.direction_id,
             "volunteer_status": volunteer.volunteer_status,
             "created_at": volunteer.created_at
@@ -330,7 +351,10 @@ def verify_volunteer_otp(otp_data: schemas.OtpRequest, db: Session = Depends(get
             "volunteer_status": volunteer.volunteer_status,
             "is_verified": user.is_verified,
             "has_multiple_roles": user.user_type != "VOLUNTEER",
-            "ava_url": volunteer.ava_url
+            "ava_url": volunteer.ava_url,
+            "full_name": volunteer.full_name,
+            "age": volunteer.age,
+            "bio": volunteer.bio
         }
     }
 
@@ -357,6 +381,8 @@ def get_volunteer_profile(
         "phone_number": current_user.phone_number,
         "ava_url": volunteer.ava_url,
         "full_name": volunteer.full_name,
+        "age": volunteer.age,
+        "bio": volunteer.bio,
         "direction_id": volunteer.direction_id,
         "volunteer_status": volunteer.volunteer_status,
         "primary_role": current_user.user_type,
@@ -369,7 +395,8 @@ def get_volunteer_profile(
 @router.put("/profile")
 async def update_volunteer_profile(
         full_name: str = Form(None),
-        corps_id: int = Form(None),
+        age: int = Form(None),
+        bio: str = Form(None),
         direction_id: int = Form(None),
         avatar: UploadFile = File(None),
         current_user: models.User = Depends(oauth2.get_current_user),
@@ -388,8 +415,23 @@ async def update_volunteer_profile(
 
     if full_name is not None:
         volunteer.full_name = full_name
-    if corps_id is not None:
-        volunteer.corps_id = corps_id
+
+    if age is not None:
+        if age < 14 or age > 100:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Возраст должен быть от 14 до 100 лет"
+            )
+        volunteer.age = age
+
+    if bio is not None:
+        if len(bio) < 10:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Расскажите о себе более подробно (минимум 10 символов)"
+            )
+        volunteer.bio = bio
+
     if direction_id is not None:
         volunteer.direction_id = direction_id
 
@@ -408,7 +450,8 @@ async def update_volunteer_profile(
             "id": volunteer.id,
             "full_name": volunteer.full_name,
             "ava_url": volunteer.ava_url,
-            "corps_id": volunteer.corps_id,
+            "age": volunteer.age,
+            "bio": volunteer.bio,
             "direction_id": volunteer.direction_id,
             "volunteer_status": volunteer.volunteer_status
         }
