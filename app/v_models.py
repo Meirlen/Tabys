@@ -146,7 +146,7 @@ class TaskCompletion(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     task_id = Column(Integer, ForeignKey("event_tasks.id"))
-    application_id = Column(Integer, ForeignKey("event_applications.id"))
+    application_id = Column(Integer, ForeignKey("event_applications2.id"))
 
     completed = Column(Boolean, default=False)
     completed_at = Column(DateTime, nullable=True)
