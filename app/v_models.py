@@ -142,7 +142,7 @@ class EventTask(Base):
 from datetime import datetime
 # === ВЫПОЛНЕНИЕ ЗАДАЧ ===
 class TaskCompletion(Base):
-    __tablename__ = "task_completions_1"
+    __tablename__ = "task_completions_2"
 
     id = Column(Integer, primary_key=True, index=True)
     task_id = Column(Integer, ForeignKey("event_tasks.id"))
