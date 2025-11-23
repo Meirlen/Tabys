@@ -21,11 +21,10 @@ def get_all_news(db: Session = Depends(get_db)):
     news_list = db.query(news_models.News).order_by(news_models.News.date.desc()).all()
     return news_list
 
-@admin_router.get("/{id}", response_model=news_schemas.NewsResponse)
+@router.get("/{id}", response_model=news_schemas.NewsResponse)
 def get_news_by_id(
     id: int,
-    db: Session = Depends(get_db),
-    current_admin: models.Admin = Depends(oauth2.get_current_admin)
+    db: Session = Depends(get_db)
 ):
     news_item = db.query(news_models.News).filter(news_models.News.id == id).first()
     if not news_item:
