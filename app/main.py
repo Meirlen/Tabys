@@ -1,11 +1,11 @@
 from fastapi import FastAPI, Depends, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from app.routers import experts, auth,volunteer_auth,volunteer_admin_routes,volunteer_routes, vacancies, admin_auth_router,resume_routes,leisure_routes, events, certificates, projects
+from app.routers import experts, auth,volunteer_auth,volunteer_admin_routes,volunteer_routes, vacancies, admin_auth_router,resume_routes,leisure_routes, events, certificates, projects, news
 from app.routers import courses_router
 from app.database import engine, Base
 
 # Импортируем модели проектов для создания таблиц
-from app import project_models
+from app import project_models, news_models
 
 import uvicorn
 import os
@@ -88,6 +88,8 @@ app.include_router(leisure_routes.router)
 app.include_router(volunteer_auth.router)
 app.include_router(volunteer_routes.router)
 app.include_router(volunteer_admin_routes.router)
+app.include_router(news.router)
+app.include_router(news.admin_router)
 
 
 # Корневой маршрут
