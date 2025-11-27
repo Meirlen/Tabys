@@ -39,6 +39,7 @@ def create_profession(
     return profession
 
 
+
 @router.get("/professions", response_model=List[ProfessionResponse])
 def get_professions(
         skip: int = 0,
@@ -61,6 +62,26 @@ def get_professions(
 
     # professions = query.order_by(Profession.name_ru).offset(skip).limit(limit).all()
     return professions
+
+
+@router.delete("/professions/{profession_id}")
+def delete_profession(
+        profession_id: int,
+        db: Session = Depends(get_db)
+):
+    """Удаление профессии (мягкое удаление)"""
+    profession = db.query(Profession).filter(Profession.id == profession_id).first()
+
+    if not profession:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Профессия не найдена"
+        )
+
+    profession.is_active = False
+    db.commit()
+
+    return {"message": "Профессия успешно удалена"}
 
 
 @router.post("/regions", response_model=RegionResponse)
