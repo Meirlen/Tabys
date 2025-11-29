@@ -863,7 +863,8 @@ def create_event(db: Session, event: EventCreate):
         event_date=event.event_date,
         location=event.location,
         format=event.format,
-        description=event.description
+        description=event.description,
+        event_photo=event.event_photo
     )
 
     # Add event to session

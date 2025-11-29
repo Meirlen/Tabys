@@ -150,6 +150,7 @@ class Event(Base):
     location = Column(String, nullable=False)
     format = Column(Enum("Online", "Offline", name="event_format"), nullable=False)
     description = Column(Text, nullable=False)
+    event_photo = Column(String, nullable=True)  # URL or path to event photo
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

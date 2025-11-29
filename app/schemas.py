@@ -762,6 +762,7 @@ class EventBase(BaseModel):
     location: str
     format: Literal["Online", "Offline"]
     description: str
+    event_photo: Optional[str] = None
 
 
 class EventCreate(EventBase):
@@ -794,6 +795,7 @@ class EventUpdate(BaseModel):
     location: Optional[str] = None
     format: Optional[Literal["Online", "Offline"]] = None
     description: Optional[str] = None
+    event_photo: Optional[str] = None
 
     class Config:
         orm_mode = True

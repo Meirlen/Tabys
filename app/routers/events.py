@@ -1,7 +1,9 @@
-from fastapi import APIRouter, Depends, status, Query, Response, BackgroundTasks, HTTPException
+from fastapi import APIRouter, Depends, status, Query, Response, BackgroundTasks, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime
+import os
+import uuid
 
 from app.database import get_db
 from app.schemas import (
@@ -221,3 +223,93 @@ def get_event_participants(
 
     participants = crud.get_event_participants(db, event_id=event_id, skip=skip, limit=limit)
     return participants
+
+
+@router.post("/{event_id}/upload-photo")
+async def upload_event_photo(
+        event_id: int,
+        file: UploadFile = File(...),
+        db: Session = Depends(get_db)
+):
+    """
+    Upload a photo for an event
+    """
+    # Check if event exists
+    event = crud.get_event(db, event_id=event_id)
+    if not event:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Event not found"
+        )
+
+    # Validate file type
+    allowed_extensions = ['jpg', 'jpeg', 'png', 'gif', 'webp']
+    file_extension = file.filename.split('.')[-1].lower() if '.' in file.filename else ''
+
+    if file_extension not in allowed_extensions:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid file type. Allowed types: {', '.join(allowed_extensions)}"
+        )
+
+    # Create uploads directory if it doesn't exist
+    upload_dir = "uploads/events"
+    os.makedirs(upload_dir, exist_ok=True)
+
+    # Generate unique filename
+    unique_filename = f"{uuid.uuid4()}.{file_extension}"
+    file_path = os.path.join(upload_dir, unique_filename)
+
+    # Save the file
+    with open(file_path, "wb") as buffer:
+        content = await file.read()
+        buffer.write(content)
+
+    # Update event with photo path
+    photo_url = f"/{file_path}"
+    updated_event = crud.update_event(
+        db,
+        event_id=event_id,
+        event_update=EventUpdate(event_photo=photo_url)
+    )
+
+    return {
+        "message": "Photo uploaded successfully",
+        "photo_url": photo_url,
+        "event_id": event_id
+    }
+
+
+@router.delete("/{event_id}/photo")
+def delete_event_photo(
+        event_id: int,
+        db: Session = Depends(get_db)
+):
+    """
+    Delete the photo for an event
+    """
+    event = crud.get_event(db, event_id=event_id)
+    if not event:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Event not found"
+        )
+
+    # Delete the physical file if it exists
+    if event.event_photo:
+        file_path = event.event_photo.lstrip('/')
+        if os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+            except Exception as e:
+                # Log the error but don't fail the request
+                print(f"Error deleting file: {e}")
+
+    # Update event to remove photo URL
+    updated_event = crud.update_event(
+        db,
+        event_id=event_id,
+        event_update=EventUpdate(event_photo=None)
+    )
+
+    return {"message": "Photo deleted successfully"}
