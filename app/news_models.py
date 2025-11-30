@@ -10,4 +10,5 @@ class News(Base):
     description = Column(Text, nullable=False)
     photo_url = Column(String(500), nullable=True)
     content_text = Column(Text, nullable=False)
+    category = Column(String(100), nullable=True, default=None)  # New field, nullable for backward compatibility
     date = Column(DateTime, default=func.now(), nullable=False)

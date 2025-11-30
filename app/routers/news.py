@@ -1,6 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 from app.database import get_db
 from app import news_models, news_schemas, models, oauth2
 
@@ -17,9 +17,26 @@ admin_router = APIRouter(
 )
 
 @router.get("/", response_model=List[news_schemas.NewsResponse])
-def get_all_news(db: Session = Depends(get_db)):
-    news_list = db.query(news_models.News).order_by(news_models.News.date.desc()).all()
+def get_all_news(
+    category: Optional[str] = Query(None, description="Filter news by category"),
+    db: Session = Depends(get_db)
+):
+    query = db.query(news_models.News)
+
+    # Filter by category if provided
+    if category:
+        query = query.filter(news_models.News.category == category)
+
+    news_list = query.order_by(news_models.News.date.desc()).all()
     return news_list
+
+@router.get("/categories", response_model=List[str])
+def get_all_categories(db: Session = Depends(get_db)):
+    """Get all unique news categories"""
+    categories = db.query(news_models.News.category).distinct().filter(
+        news_models.News.category.isnot(None)
+    ).all()
+    return [cat[0] for cat in categories if cat[0]]
 
 @router.get("/{id}", response_model=news_schemas.NewsResponse)
 def get_news_by_id(
