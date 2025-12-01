@@ -949,18 +949,29 @@ def get_promotion_requirements(
 
 @router.post("/request-promotion")
 def request_promotion(
-        requested_status: str,
+        request_data: dict,
         current_user: models.User = Depends(oauth2.get_current_user),
         db: Session = Depends(get_db)
 ):
     """
     Запрос на повышение
     """
+    requested_status = request_data.get("requested_status")
+
+    if not requested_status:
+        raise HTTPException(status_code=400, detail="requested_status is required")
+
     volunteer = db.query(Volunteer).filter(Volunteer.user_id == current_user.id).first()
+
+    if not volunteer:
+        raise HTTPException(status_code=404, detail="Профиль волонтера не найден")
 
     balance = db.query(VolunteerBalance).filter(
         VolunteerBalance.volunteer_id == volunteer.id
     ).first()
+
+    if not balance:
+        raise HTTPException(status_code=404, detail="Баланс волонтера не найден")
 
     # Проверка логичности повышения
     hierarchy = {

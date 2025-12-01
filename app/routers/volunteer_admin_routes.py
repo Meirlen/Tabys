@@ -12,11 +12,9 @@ from typing import Optional
 router = APIRouter(prefix="/api/v2/admin/volunteer", tags=["Volunteer Admin"])
 
 
-def verify_admin(current_user: models.User = Depends(oauth2.get_current_user)):
+def verify_admin(current_admin: models.Admin = Depends(oauth2.get_current_admin)):
     """Проверка прав админа"""
-    if not current_user.is_admin:
-        raise HTTPException(status_code=403, detail="Только для администраторов")
-    return current_user
+    return current_admin
 
 
 # === УПРАВЛЕНИЕ МЕРОПРИЯТИЯМИ ===
@@ -452,8 +450,9 @@ def complete_purchase(
 
 @router.get("/promotion-requests")
 def get_promotion_requests(
-        status_filter: Optional[str] = "pending",
+        status_filter: Optional[str] = None,
         db: Session = Depends(get_db),
+        current_admin: models.Admin = Depends(verify_admin)
 ):
     """Все запросы на повышение"""
     query = db.query(PromotionRequest)
@@ -466,6 +465,9 @@ def get_promotion_requests(
     result = []
     for req in requests:
         volunteer = db.query(Volunteer).filter(Volunteer.id == req.volunteer_id).first()
+        if not volunteer:
+            continue
+
         balance = db.query(VolunteerBalance).filter(
             VolunteerBalance.volunteer_id == volunteer.id
         ).first()
@@ -481,17 +483,20 @@ def get_promotion_requests(
             "v_coins_at_request": req.v_coins_at_request,
             "current_v_coins": balance.current_balance if balance else 0,
             "status": req.status,
-            "created_at": req.created_at
+            "created_at": req.created_at,
+            "reviewed_at": req.reviewed_at,
+            "admin_comment": req.admin_comment
         })
 
     return {"requests": result}
 
 
-@router.patch("/promotion-requests/{request_id}/approve")
+@router.post("/promotion-requests/{request_id}/approve")
 def approve_promotion(
         request_id: int,
-        admin_comment: str = None,
+        request_data: dict,
         db: Session = Depends(get_db),
+        current_admin: models.Admin = Depends(verify_admin)
 ):
     """Одобрить повышение"""
     req = db.query(PromotionRequest).filter(PromotionRequest.id == request_id).first()
@@ -499,15 +504,17 @@ def approve_promotion(
         raise HTTPException(status_code=404, detail="Не найдено")
 
     volunteer = db.query(Volunteer).filter(Volunteer.id == req.volunteer_id).first()
+    if not volunteer:
+        raise HTTPException(status_code=404, detail="Волонтер не найден")
 
     # Повышаем статус
     volunteer.volunteer_status = req.requested_status
     volunteer.updated_at = datetime.utcnow()
 
     req.status = "approved"
-    req.admin_comment = admin_comment
+    req.admin_comment = request_data.get("admin_comment", "")
     req.reviewed_at = datetime.utcnow()
-    req.reviewed_by = 1
+    req.reviewed_by = current_admin.id
 
     db.commit()
 
@@ -517,21 +524,26 @@ def approve_promotion(
     }
 
 
-@router.patch("/promotion-requests/{request_id}/reject")
+@router.post("/promotion-requests/{request_id}/reject")
 def reject_promotion(
         request_id: int,
-        admin_comment: str,
+        request_data: dict,
         db: Session = Depends(get_db),
+        current_admin: models.Admin = Depends(verify_admin)
 ):
     """Отклонить повышение"""
     req = db.query(PromotionRequest).filter(PromotionRequest.id == request_id).first()
     if not req:
         raise HTTPException(status_code=404, detail="Не найдено")
 
+    admin_comment = request_data.get("admin_comment", "")
+    if not admin_comment:
+        raise HTTPException(status_code=400, detail="Комментарий обязателен при отклонении")
+
     req.status = "rejected"
     req.admin_comment = admin_comment
     req.reviewed_at = datetime.utcnow()
-    req.reviewed_by = 1
+    req.reviewed_by = current_admin.id
 
     db.commit()
 
