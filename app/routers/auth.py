@@ -110,6 +110,45 @@ def send_otp(login_data: schemas.LoginRequest, db: Session = Depends(get_db)):
     )
 
 
+# Простая авторизация по номеру телефона (без OTP)
+@router.post("/login-phone")
+def login_with_phone(login_data: schemas.LoginRequest, db: Session = Depends(get_db)):
+    """
+    Авторизация пользователя только по номеру телефона (без OTP)
+    """
+    phone_number = login_data.phone_number
+
+    # Ищем пользователя
+    user = db.query(models.User).filter(
+        models.User.phone_number == phone_number
+    ).first()
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Пользователь не найден. Необходимо зарегистрироваться"
+        )
+
+    # Обновляем статус верификации
+    user.is_verified = True
+    db.commit()
+
+    # Создаем токен
+    access_token = oauth2.create_access_token(data={"user_id": str(user.id)})
+
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user_data": {
+            "id": user.id,
+            "phone_number": user.phone_number,
+            "user_type": user.user_type,
+            "service_status": user.service_status.value,
+            "is_verified": user.is_verified
+        }
+    }
+
+
 # Подтверждение OTP и авторизация
 @router.post("/verify-otp")
 def verify_otp(otp_data: schemas.OtpRequest, db: Session = Depends(get_db)):
