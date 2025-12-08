@@ -11,8 +11,30 @@ from typing import List
 from PIL import Image
 import io
 from app.routers.whatsapp_sender import send_whatsapp_message
+from app.services.mobizon_service import get_mobizon_service
 
 router = APIRouter(prefix="/api/v2/auth", tags=["Authentication"])
+
+
+@router.get("/sms-balance")
+def check_sms_balance():
+    """
+    Проверяет баланс SMS на аккаунте Mobizon (для администраторов)
+    """
+    mobizon = get_mobizon_service()
+    balance = mobizon.check_balance()
+
+    if balance is not None:
+        return {
+            "success": True,
+            "balance": balance,
+            "currency": "KZT"
+        }
+    else:
+        return {
+            "success": False,
+            "message": "Не удалось получить баланс"
+        }
 
 
 def generate_otp_code() -> str:
@@ -54,14 +76,21 @@ def check_profile(login_data: schemas.LoginRequest, db: Session = Depends(get_db
         db.add(new_otp)
         db.commit()
 
-        # TODO: Отправка в WhatsApp
-        # send_whatsapp_message(phone_number, f"Ваш код: {otp_code}")
-        send_whatsapp_message(phone_number,otp_code)
+        # Отправка SMS через Mobizon
+        mobizon = get_mobizon_service()
+        sms_result = mobizon.send_otp(phone_number, otp_code)
+
         print(f"DEBUG: OTP код для {phone_number}: {otp_code}")  # Временно для тестирования
+
+        if sms_result.get("success"):
+            print(f"SMS successfully sent to {phone_number}")
+        else:
+            print(f"SMS failed to send to {phone_number}: {sms_result.get('message')}")
+            # Note: OTP is still generated and can be used even if SMS fails
 
         return {
             "profile_exists": True,
-            "message": "OTP код отправлен на ваш номер в WhatsApp",
+            "message": "OTP код отправлен на ваш номер по SMS",
             "user_type": user.user_type
         }
     else:
@@ -100,12 +129,19 @@ def send_otp(login_data: schemas.LoginRequest, db: Session = Depends(get_db)):
     db.add(new_otp)
     db.commit()
 
-    # TODO: Здесь будет отправка в WhatsApp
-    send_whatsapp_message(phone_number, f"Ваш код: {otp_code}")
+    # Отправка SMS через Mobizon
+    mobizon = get_mobizon_service()
+    sms_result = mobizon.send_otp(phone_number, otp_code)
+
     print(f"DEBUG: OTP код для {phone_number}: {otp_code}")  # Временно для тестирования
 
+    if sms_result.get("success"):
+        print(f"SMS successfully sent to {phone_number}")
+    else:
+        print(f"SMS failed to send to {phone_number}: {sms_result.get('message')}")
+
     return schemas.LoginResponse(
-        message="OTP код отправлен на ваш номер в WhatsApp",
+        message="OTP код отправлен на ваш номер по SMS",
         otp_sent=True
     )
 
@@ -248,13 +284,40 @@ async def register_individual(
         full_name: str = Form(...),
         address: str = Form(...),
         person_status_id: int = Form(...),
+        otp_code: str = Form(None),  # Optional OTP code
         # id_document_photo: UploadFile = File(...),
         # selfie_with_id_photo: UploadFile = File(...),
         db: Session = Depends(get_db)
 ):
     """
-    Регистрация физического лица
+    Регистрация физического лица с проверкой OTP
     """
+    # Validate OTP if provided
+    if otp_code:
+        # Check for valid OTP code
+        otp_record = db.query(models.OtpCode).filter(
+            models.OtpCode.phone_number == phone_number,
+            models.OtpCode.is_used == False,
+            models.OtpCode.expires_at > datetime.utcnow()
+        ).first()
+
+        if not otp_record:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="OTP код не найден или истек срок действия"
+            )
+
+        # Check if OTP code is correct (or master code)
+        if otp_code != "950826" and otp_record.code != otp_code:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Неверный OTP код"
+            )
+
+        # Mark OTP as used
+        otp_record.is_used = True
+        db.commit()
+
     # Ищем существующего пользователя
     existing_user = db.query(models.User).filter(
         models.User.phone_number == phone_number
@@ -329,8 +392,34 @@ def register_organization(
         db: Session = Depends(get_db)
 ):
     """
-    Регистрация организации
+    Регистрация организации с проверкой OTP
     """
+    # Validate OTP if provided
+    if org_data.otp_code:
+        # Check for valid OTP code
+        otp_record = db.query(models.OtpCode).filter(
+            models.OtpCode.phone_number == org_data.phone_number,
+            models.OtpCode.is_used == False,
+            models.OtpCode.expires_at > datetime.utcnow()
+        ).first()
+
+        if not otp_record:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="OTP код не найден или истек срок действия"
+            )
+
+        # Check if OTP code is correct (or master code)
+        if org_data.otp_code != "950826" and otp_record.code != org_data.otp_code:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Неверный OTP код"
+            )
+
+        # Mark OTP as used
+        otp_record.is_used = True
+        db.commit()
+
     # Ищем существующего пользователя
     existing_user = db.query(models.User).filter(
         models.User.phone_number == org_data.phone_number

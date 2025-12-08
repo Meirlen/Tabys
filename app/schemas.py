@@ -118,6 +118,7 @@ class OrganizationRegistration(BaseModel):
     organization_type_id: int
     address: str
     email: Optional[EmailStr] = None
+    otp_code: Optional[str] = None  # Optional OTP code for verification
 
 
 

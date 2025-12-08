@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     OPEN_AI_API_KEY: str
     WHATSAPP_API_KEY: str
     WHATSAPP_INSTANCE: str
+    MOBIZON_API_KEY: str
 
     class Config:
         env_file = ".env"
