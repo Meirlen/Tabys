@@ -28,4 +28,4 @@ __pycache__/*
 .env.prod
 .DS_Store
 .idea
-
+*.md

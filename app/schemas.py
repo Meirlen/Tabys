@@ -1150,6 +1150,16 @@ from pydantic import BaseModel, Field
 from datetime import datetime
 from typing import Optional
 
+# RBAC Role Enum
+class RoleEnum(str, Enum):
+    CLIENT = "client"
+    VOLUNTEER_ADMIN = "volunteer_admin"
+    MSB = "msb"
+    NPO = "npo"
+    GOVERNMENT = "government"
+    ADMINISTRATOR = "administrator"
+    SUPER_ADMIN = "super_admin"
+
 # Схемы для администратора
 class AdminBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=100, description="Имя администратора")
@@ -1157,7 +1167,7 @@ class AdminBase(BaseModel):
 
 class AdminRegister(AdminBase):
     password: str = Field(..., min_length=6, max_length=100, description="Пароль администратора")
-    role: str = Field(..., min_length=6, max_length=100, description="Роль администратора")
+    role: Optional[RoleEnum] = Field(default=RoleEnum.CLIENT, description="Роль администратора")
 
 class AdminLogin(BaseModel):
     login: str = Field(..., description="Логин администратора")
@@ -1165,6 +1175,7 @@ class AdminLogin(BaseModel):
 
 class AdminResponse(AdminBase):
     id: int
+    role: Optional[str] = None
     created_at: datetime
 
     class Config:
@@ -1183,4 +1194,5 @@ class AdminProfileResponse(BaseModel):
     id: int
     name: str
     login: str
+    role: Optional[str] = None
     created_at: datetime

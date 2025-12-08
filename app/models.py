@@ -36,6 +36,15 @@ class OrganizationTypeEnum(enum.Enum):
     EDUCATIONAL = "educational"
     NON_PROFIT = "non_profit"
 
+class RoleEnum(enum.Enum):
+    CLIENT = "client"
+    VOLUNTEER_ADMIN = "volunteer_admin"
+    MSB = "msb"
+    NPO = "npo"
+    GOVERNMENT = "government"
+    ADMINISTRATOR = "administrator"
+    SUPER_ADMIN = "super_admin"
+
 
 class Credentials(Base):
     __tablename__ = "credentials_"
@@ -586,7 +595,7 @@ class Admin(Base):
     id = Column(Integer, primary_key=True, nullable=False)
     name = Column(String, nullable=False)
     login = Column(String, nullable=True)
-    role= Column(String, nullable=True)
+    role = Column(String, nullable=True)  # Will be migrated to Enum in database
     password = Column(String, nullable=True)
     created_at = Column(TIMESTAMP(timezone=True),
                             nullable=False, server_default=text('now()'))

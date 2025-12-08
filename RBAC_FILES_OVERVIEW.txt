@@ -1,0 +1,273 @@
+================================================================================
+                    🔐 RBAC IMPLEMENTATION - FILE OVERVIEW
+================================================================================
+
+📁 GENERATED FILES STRUCTURE:
+
+Tabys/
+├── 📂 app/
+│   └── 📂 rbac/                     ← NEW: Core RBAC System
+│       ├── __init__.py              ← Exports all RBAC functions
+│       ├── roles.py                 ← Role definitions & hierarchy
+│       ├── permissions.py           ← Permission mapping (who can do what)
+│       └── middleware.py            ← Guards & decorators for routes
+│
+├── 📂 migrations/                   ← NEW: Database Migrations
+│   ├── 001_add_role_enum.sql       ← Add role column with enum
+│   ├── 002_assign_initial_roles.sql ← Set default roles
+│   └── ROLLBACK.sql                ← Undo migration if needed
+│
+├── 📂 examples/                     ← NEW: Integration Examples
+│   ├── volunteer_routes_example.py  ← How to protect volunteer routes
+│   ├── vacancies_routes_example.py  ← How to protect vacancy routes
+│   ├── projects_routes_example.py   ← How to protect project routes
+│   └── news_routes_example.py       ← How to protect news routes
+│
+└── 📂 Documentation/                ← NEW: Complete Documentation
+    ├── README_RBAC.md               ← Main entry point (start here)
+    ├── QUICK_START.md               ← 5-minute setup guide
+    ├── RBAC_SUMMARY.md              ← Visual overview & architecture
+    ├── RBAC_IMPLEMENTATION.md       ← Complete technical documentation
+    └── TEST_RBAC.md                 ← Testing guide & test scripts
+
+================================================================================
+                            🎯 WHAT EACH FILE DOES
+================================================================================
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         CORE SYSTEM FILES                                │
+└─────────────────────────────────────────────────────────────────────────┘
+
+📄 app/rbac/roles.py
+   ├── Role enum (client, volunteer_admin, msb, npo, etc.)
+   ├── Role hierarchy (who has higher privileges)
+   └── Helper: has_higher_or_equal_privilege()
+
+📄 app/rbac/permissions.py
+   ├── Module class (VOLUNTEERS, VACANCIES, LEISURE, etc.)
+   ├── Permission class (READ, CREATE, UPDATE, DELETE)
+   ├── ROLE_PERMISSIONS mapping (complete matrix)
+   ├── has_permission(role, module, permission)
+   ├── get_accessible_modules(role)
+   └── is_read_only(role, module)
+
+📄 app/rbac/middleware.py
+   ├── require_role(*roles) → Decorator for specific roles
+   ├── require_permission(module, perm) → Decorator for permissions
+   ├── require_module_access(module, allow_ro) → Decorator for module access
+   ├── block_read_only() → Block government users from editing
+   ├── get_current_admin_with_module(module) → Get admin + verify access
+   └── check_admin_permission(admin, module, perm) → Helper for logic
+
+📄 app/rbac/__init__.py
+   └── Exports all functions for easy import
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│                       DATABASE MIGRATION FILES                           │
+└─────────────────────────────────────────────────────────────────────────┘
+
+📄 migrations/001_add_role_enum.sql
+   ├── Creates roleenum type in PostgreSQL
+   ├── Alters admin table to use enum
+   ├── Sets default role to 'client'
+   └── Creates index on role column
+
+📄 migrations/002_assign_initial_roles.sql
+   ├── Assigns roles to existing admins based on login patterns
+   ├── Sets super_admin for main accounts
+   ├── Sets specific roles for volunteer, msb, npo, gov accounts
+   └── Shows role distribution query
+
+📄 migrations/ROLLBACK.sql
+   └── Script to undo migration if needed
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         EXAMPLE INTEGRATIONS                             │
+└─────────────────────────────────────────────────────────────────────────┘
+
+📄 examples/volunteer_routes_example.py
+   ├── Complete example for volunteer_admin_routes.py
+   ├── Shows how to protect GET routes (allow read-only)
+   ├── Shows how to protect POST routes (require create)
+   ├── Shows how to protect PUT routes (require update)
+   ├── Shows how to protect DELETE routes (require delete)
+   └── Shows conditional logic (hide data for read-only)
+
+📄 examples/vacancies_routes_example.py
+   ├── Complete example for vacancies.py
+   └── Similar patterns for MSB role access
+
+📄 examples/projects_routes_example.py
+   ├── Complete example for projects.py
+   └── Similar patterns for NPO role access
+
+📄 examples/news_routes_example.py
+   ├── Complete example for news.py
+   └── Shows administrator-only access
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           DOCUMENTATION                                  │
+└─────────────────────────────────────────────────────────────────────────┘
+
+📄 README_RBAC.md (START HERE!)
+   ├── Navigation guide to all docs
+   ├── Quick overview of the system
+   ├── Permission matrix visualization
+   ├── Integration checklist
+   └── Links to all other docs
+
+📄 QUICK_START.md (5 MINUTES TO SETUP)
+   ├── Step 1: Update models.py
+   ├── Step 2: Update schemas.py
+   ├── Step 3: Run database migration
+   ├── Step 4: Restart backend
+   ├── Step 5: Test it works
+   ├── Module names reference
+   ├── Quick test examples
+   └── Common issues & fixes
+
+📄 RBAC_SUMMARY.md (VISUAL OVERVIEW)
+   ├── Architecture diagram
+   ├── Permission matrix table
+   ├── File structure overview
+   ├── Integration patterns
+   ├── Before/after code comparison
+   ├── Usage examples
+   └── Benefits & features
+
+📄 RBAC_IMPLEMENTATION.md (COMPLETE GUIDE)
+   ├── Role & permission mapping table
+   ├── File structure details
+   ├── Step-by-step implementation
+   ├── Complete code for all RBAC files
+   ├── Usage examples for each decorator
+   ├── Database migration guide
+   ├── Integration examples for all routes
+   ├── Testing guide
+   └── Troubleshooting
+
+📄 TEST_RBAC.md (TESTING GUIDE)
+   ├── Quick start testing
+   ├── Database verification queries
+   ├── Create test users SQL
+   ├── Manual testing with curl
+   ├── 9 test case scenarios
+   ├── Bash test script
+   ├── Python test script
+   ├── Expected results summary
+   └── Troubleshooting test failures
+
+================================================================================
+                        📊 PERMISSION MATRIX SUMMARY
+================================================================================
+
+Role             | Volunteers | Vacancies | Leisure | Projects | Events | News
+-----------------|------------|-----------|---------|----------|--------|------
+client           |     ❌     |     ❌    |    ❌   |    ❌    |   ❌   |  ❌
+volunteer_admin  |  ✅ CRUD   |     ❌    |    ❌   |    ❌    |   ❌   |  ❌
+msb              |     ❌     |  ✅ CRUD  | ✅ CRUD |    ❌    |   ❌   |  ❌
+npo              |     ❌     |     ❌    |    ❌   | ✅ CRUD  |✅ CRUD |  ❌
+government       |  👁️ READ   |  👁️ READ  | 👁️ READ | 👁️ READ  |👁️ READ |👁️READ
+administrator    |  ✅ CRUD   |  ✅ CRUD  | ✅ CRUD | ✅ CRUD  |✅ CRUD |✅CRUD
+super_admin      |  ✅ CRUD   |  ✅ CRUD  | ✅ CRUD | ✅ CRUD  |✅ CRUD |✅CRUD
+
+Legend: ✅ = Full CRUD | 👁️ = Read-Only | ❌ = No Access
+
+================================================================================
+                           🎯 INTEGRATION PATTERN
+================================================================================
+
+Before (existing code):
+────────────────────────────────────────────────────────────────────────
+@router.get("/volunteers")
+def get_volunteers(
+    admin = Depends(get_current_admin),  # Only checks auth
+    db: Session = Depends(get_db)
+):
+    return db.query(Volunteer).all()
+
+After (with RBAC):
+────────────────────────────────────────────────────────────────────────
+from app.rbac import Module, require_module_access
+
+@router.get("/volunteers")
+def get_volunteers(
+    admin = Depends(require_module_access(Module.VOLUNTEERS, allow_read_only=True)),
+    db: Session = Depends(get_db)
+):
+    return db.query(Volunteer).all()
+
+✅ Only 1 line changed!
+✅ All other code stays the same!
+
+================================================================================
+                         🚀 QUICK START COMMANDS
+================================================================================
+
+1. Run Database Migration:
+   docker-compose exec postgres psql -U postgres -d your_db < migrations/001_add_role_enum.sql
+
+2. Update Code Files:
+   # Edit app/models.py (add RoleEnum)
+   # Edit app/schemas.py (add RoleEnum)
+
+3. Restart Backend:
+   docker-compose restart
+
+4. Test:
+   curl -X POST http://localhost:8000/api/admin/login -d '{"login":"test","password":"test"}'
+
+================================================================================
+                         ✅ IMPLEMENTATION CHECKLIST
+================================================================================
+
+Setup Phase (5 min):
+ [ ] Update app/models.py
+ [ ] Update app/schemas.py
+ [ ] Run database migration
+ [ ] Restart backend
+ [ ] Verify RBAC files exist (ls app/rbac/)
+
+Integration Phase (per route):
+ [ ] Add import: from app.rbac import Module, require_module_access
+ [ ] Update GET routes: Depends(require_module_access(...))
+ [ ] Update POST routes: Depends(require_permission(..., Permission.CREATE))
+ [ ] Update PUT routes: Depends(require_permission(..., Permission.UPDATE))
+ [ ] Update DELETE routes: Depends(require_permission(..., Permission.DELETE))
+
+Testing Phase:
+ [ ] Create test users (one per role)
+ [ ] Test government read access (should work)
+ [ ] Test government create (should fail 403)
+ [ ] Test module isolation (volunteer_admin → vacancies should fail)
+ [ ] Test super_admin (should access everything)
+
+================================================================================
+                           📞 WHERE TO GET HELP
+================================================================================
+
+Issue                              | Read This
+-----------------------------------|------------------------------------------
+"How do I set this up?"            | QUICK_START.md
+"What files were created?"         | This file (RBAC_FILES_OVERVIEW.txt)
+"How does it work?"                | RBAC_SUMMARY.md
+"I need technical details"         | RBAC_IMPLEMENTATION.md
+"How do I test it?"                | TEST_RBAC.md
+"How do I integrate into routes?"  | examples/*.py
+"Database migration failed"        | migrations/*.sql + QUICK_START.md
+"Import errors"                    | Check app/rbac/ files exist
+"All requests return 403"          | Check user role in database
+
+================================================================================
+                              🎉 YOU'RE READY!
+================================================================================
+
+Next steps:
+1. Open README_RBAC.md
+2. Read QUICK_START.md
+3. Follow the 5 steps
+4. Test it works
+5. Apply to all routes
+
+Good luck! 🚀
+================================================================================
