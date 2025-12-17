@@ -26,3 +26,13 @@ class News(Base):
     photo_url = Column(String(500), nullable=True)
     category = Column(String(100), nullable=True, default=None)
     date = Column(DateTime, default=func.now(), nullable=False)
+
+    # Moderation fields
+    moderation_status = Column(String(20), default='pending', nullable=False)  # 'pending', 'approved', 'rejected'
+    source_url = Column(String(1000), nullable=True)
+    source_name = Column(String(255), nullable=True)
+    language = Column(String(10), nullable=True)  # 'kz', 'ru', or 'unknown'
+    keywords_matched = Column(Text, nullable=True)  # Store matched keywords as JSON or comma-separated
+    created_at = Column(DateTime, default=func.now(), nullable=False)
+    moderated_at = Column(DateTime, nullable=True)
+    moderated_by = Column(Integer, nullable=True)  # Admin ID who moderated

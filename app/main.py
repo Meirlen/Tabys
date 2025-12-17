@@ -90,6 +90,7 @@ app.include_router(volunteer_routes.router)
 app.include_router(volunteer_admin_routes.router)
 app.include_router(news.router)
 app.include_router(news.admin_router)
+app.include_router(news.parser_router)
 
 
 # Корневой маршрут
