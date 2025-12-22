@@ -1,9 +1,9 @@
 # volunteer_auth.py
 
-from fastapi import APIRouter, Depends, HTTPException, status, Form, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, status, Form, UploadFile, File, Request
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app import models, schemas, oauth2
+from app import models, schemas, oauth2, analytics_models
 from app.v_models import *
 from datetime import datetime, timedelta
 import random
@@ -292,8 +292,12 @@ def check_has_volunteer_profile(
 
 
 @router.post("/verify-otp")
-def verify_volunteer_otp(otp_data: schemas.OtpRequest, db: Session = Depends(get_db)):
+def verify_volunteer_otp(otp_data: schemas.OtpRequest, request: Request, db: Session = Depends(get_db)):
     """Проверяет OTP код и авторизует волонтёра"""
+    # Get IP address and user agent for logging
+    ip_address = request.client.host if request.client else None
+    user_agent = request.headers.get('user-agent')
+
     otp_record = db.query(models.OtpCode).filter(
         models.OtpCode.phone_number == otp_data.phone_number,
         models.OtpCode.is_used == False,
@@ -301,6 +305,19 @@ def verify_volunteer_otp(otp_data: schemas.OtpRequest, db: Session = Depends(get
     ).first()
 
     if not otp_record:
+        # Log failed login - OTP not found or expired
+        login_log = analytics_models.LoginHistory(
+            user_id=None,
+            user_type='volunteer',
+            phone_number=otp_data.phone_number,
+            status='failed',
+            failure_reason='OTP code not found or expired',
+            ip_address=ip_address,
+            user_agent=user_agent
+        )
+        db.add(login_log)
+        db.commit()
+
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="OTP код не найден или истек срок действия"
@@ -308,6 +325,19 @@ def verify_volunteer_otp(otp_data: schemas.OtpRequest, db: Session = Depends(get
 
     if otp_data.code != "950826":
         if otp_record.code != otp_data.code:
+            # Log failed login - invalid OTP code
+            login_log = analytics_models.LoginHistory(
+                user_id=None,
+                user_type='volunteer',
+                phone_number=otp_data.phone_number,
+                status='failed',
+                failure_reason='Invalid OTP code',
+                ip_address=ip_address,
+                user_agent=user_agent
+            )
+            db.add(login_log)
+            db.commit()
+
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Неверный OTP код"
@@ -321,6 +351,19 @@ def verify_volunteer_otp(otp_data: schemas.OtpRequest, db: Session = Depends(get
     ).first()
 
     if not user:
+        # Log failed login - user not found
+        login_log = analytics_models.LoginHistory(
+            user_id=None,
+            user_type='volunteer',
+            phone_number=otp_data.phone_number,
+            status='failed',
+            failure_reason='User not found',
+            ip_address=ip_address,
+            user_agent=user_agent
+        )
+        db.add(login_log)
+        db.commit()
+
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Пользователь не найден"
@@ -331,12 +374,37 @@ def verify_volunteer_otp(otp_data: schemas.OtpRequest, db: Session = Depends(get
     ).first()
 
     if not volunteer:
+        # Log failed login - volunteer profile not found
+        login_log = analytics_models.LoginHistory(
+            user_id=user.id,
+            user_type='volunteer',
+            phone_number=otp_data.phone_number,
+            status='failed',
+            failure_reason='Volunteer profile not found',
+            ip_address=ip_address,
+            user_agent=user_agent
+        )
+        db.add(login_log)
+        db.commit()
+
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Профиль волонтёра не найден. Необходимо создать профиль"
         )
 
     user.is_verified = True
+    db.commit()
+
+    # Log successful login
+    login_log = analytics_models.LoginHistory(
+        user_id=user.id,
+        user_type='volunteer',
+        phone_number=otp_data.phone_number,
+        status='success',
+        ip_address=ip_address,
+        user_agent=user_agent
+    )
+    db.add(login_log)
     db.commit()
 
     access_token = oauth2.create_access_token(data={"user_id": str(user.id)})

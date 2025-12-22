@@ -1,8 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app import models, schemas, oauth2
+from app import models, schemas, oauth2, analytics_models
 from datetime import datetime, timedelta
 import os
 import uuid
@@ -14,6 +14,43 @@ from app.routers.whatsapp_sender import send_whatsapp_message
 from app.services.mobizon_service import get_mobizon_service
 
 router = APIRouter(prefix="/api/v2/auth", tags=["Authentication"])
+
+
+@router.get("/me")
+def get_current_user(current_user: models.User = Depends(oauth2.get_current_user), db: Session = Depends(get_db)):
+    """
+    Get current authenticated user information
+    """
+    # Get additional user data based on user type
+    user_details = {
+        "id": current_user.id,
+        "phone_number": current_user.phone_number,
+        "user_type": current_user.user_type,
+        "service_status": current_user.service_status.value,
+        "is_verified": current_user.is_verified,
+        "created_at": current_user.created_at.isoformat() if current_user.created_at else None
+    }
+
+    # Add type-specific data
+    if current_user.user_type == "individual":
+        individual = db.query(models.Individual).filter(
+            models.Individual.user_id == current_user.id
+        ).first()
+        if individual:
+            user_details["full_name"] = individual.full_name
+            user_details["address"] = individual.address
+
+    elif current_user.user_type == "organization":
+        organization = db.query(models.Organization).filter(
+            models.Organization.user_id == current_user.id
+        ).first()
+        if organization:
+            user_details["name"] = organization.name
+            user_details["bin_number"] = organization.bin_number
+            user_details["email"] = organization.email
+            user_details["address"] = organization.address
+
+    return user_details
 
 
 @router.get("/sms-balance")
@@ -187,10 +224,14 @@ def login_with_phone(login_data: schemas.LoginRequest, db: Session = Depends(get
 
 # Подтверждение OTP и авторизация
 @router.post("/verify-otp")
-def verify_otp(otp_data: schemas.OtpRequest, db: Session = Depends(get_db)):
+def verify_otp(otp_data: schemas.OtpRequest, request: Request, db: Session = Depends(get_db)):
     """
     Проверяет OTP код и авторизует пользователя
     """
+    # Get IP address and user agent for logging
+    ip_address = request.client.host if request.client else None
+    user_agent = request.headers.get('user-agent')
+
     # Ищем активный OTP код для данного номера
     otp_record = db.query(models.OtpCode).filter(
         models.OtpCode.phone_number == otp_data.phone_number,
@@ -200,6 +241,19 @@ def verify_otp(otp_data: schemas.OtpRequest, db: Session = Depends(get_db)):
 
     # Проверяем существование и валидность OTP
     if not otp_record:
+        # Log failed login - OTP not found or expired
+        login_log = analytics_models.LoginHistory(
+            user_id=None,
+            user_type='user',
+            phone_number=otp_data.phone_number,
+            status='failed',
+            failure_reason='OTP code not found or expired',
+            ip_address=ip_address,
+            user_agent=user_agent
+        )
+        db.add(login_log)
+        db.commit()
+
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="OTP код не найден или истек срок действия"
@@ -209,6 +263,19 @@ def verify_otp(otp_data: schemas.OtpRequest, db: Session = Depends(get_db)):
     if otp_data.code != "950826":
         # Проверяем правильность кода
         if otp_record.code != otp_data.code:
+            # Log failed login - invalid OTP code
+            login_log = analytics_models.LoginHistory(
+                user_id=None,
+                user_type='user',
+                phone_number=otp_data.phone_number,
+                status='failed',
+                failure_reason='Invalid OTP code',
+                ip_address=ip_address,
+                user_agent=user_agent
+            )
+            db.add(login_log)
+            db.commit()
+
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Неверный OTP код"
@@ -224,6 +291,19 @@ def verify_otp(otp_data: schemas.OtpRequest, db: Session = Depends(get_db)):
     ).first()
 
     if not user:
+        # Log failed login - user not found
+        login_log = analytics_models.LoginHistory(
+            user_id=None,
+            user_type='user',
+            phone_number=otp_data.phone_number,
+            status='failed',
+            failure_reason='User not found',
+            ip_address=ip_address,
+            user_agent=user_agent
+        )
+        db.add(login_log)
+        db.commit()
+
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Пользователь не найден. Необходимо зарегистрироваться"
@@ -231,6 +311,18 @@ def verify_otp(otp_data: schemas.OtpRequest, db: Session = Depends(get_db)):
 
     # Обновляем статус верификации
     user.is_verified = True
+    db.commit()
+
+    # Log successful login
+    login_log = analytics_models.LoginHistory(
+        user_id=user.id,
+        user_type='user',
+        phone_number=otp_data.phone_number,
+        status='success',
+        ip_address=ip_address,
+        user_agent=user_agent
+    )
+    db.add(login_log)
     db.commit()
 
     # Создаем токен

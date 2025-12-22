@@ -1,8 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app import models, oauth2
+from app import models, oauth2, analytics_models
 from pydantic import BaseModel
 from passlib.context import CryptContext
 from datetime import datetime
@@ -61,7 +61,7 @@ def register_admin(admin_data: schemas.AdminRegister, db: Session = Depends(get_
 
 
 @router.post("/login")
-def login_admin(login_data: schemas.AdminLogin, db: Session = Depends(get_db)):
+def login_admin(login_data: schemas.AdminLogin, request: Request, db: Session = Depends(get_db)):
     """
     Авторизация администратора
     """
@@ -70,7 +70,24 @@ def login_admin(login_data: schemas.AdminLogin, db: Session = Depends(get_db)):
         models.Admin.login == login_data.login
     ).first()
 
+    # Get IP address and user agent for logging
+    ip_address = request.client.host if request.client else None
+    user_agent = request.headers.get('user-agent')
+
     if not admin:
+        # Log failed login attempt
+        login_log = analytics_models.LoginHistory(
+            admin_id=None,
+            user_type='admin',
+            login=login_data.login,
+            status='failed',
+            failure_reason='Admin not found',
+            ip_address=ip_address,
+            user_agent=user_agent
+        )
+        db.add(login_log)
+        db.commit()
+
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Неверный логин или пароль"
@@ -78,10 +95,35 @@ def login_admin(login_data: schemas.AdminLogin, db: Session = Depends(get_db)):
 
     # Проверяем пароль
     if not verify_password(login_data.password, admin.password):
+        # Log failed login attempt - wrong password
+        login_log = analytics_models.LoginHistory(
+            admin_id=admin.id,
+            user_type='admin',
+            login=login_data.login,
+            status='failed',
+            failure_reason='Invalid password',
+            ip_address=ip_address,
+            user_agent=user_agent
+        )
+        db.add(login_log)
+        db.commit()
+
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Неверный логин или пароль"
         )
+
+    # Log successful login
+    login_log = analytics_models.LoginHistory(
+        admin_id=admin.id,
+        user_type='admin',
+        login=login_data.login,
+        status='success',
+        ip_address=ip_address,
+        user_agent=user_agent
+    )
+    db.add(login_log)
+    db.commit()
 
     # Создаем токен (используем существующую функцию)
     access_token = oauth2.create_access_token(data={"admin_id": str(admin.id), "user_type": "admin"})
