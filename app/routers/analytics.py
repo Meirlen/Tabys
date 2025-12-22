@@ -257,10 +257,11 @@ def get_analytics_dashboard(
             if individual:
                 name = individual.full_name
             else:
-                # If not found in Individual, try Organization table
                 organization = db.query(models.Organization).filter(models.Organization.user_id == user_id).first()
                 if organization:
                     name = organization.name
+
+        name = '-'
 
         top_active_users.append(
             analytics_schemas.TopActiveUser(
