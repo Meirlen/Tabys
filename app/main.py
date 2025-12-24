@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from app.routers import experts, auth,volunteer_auth,volunteer_admin_routes,volunteer_routes, vacancies, admin_auth_router,resume_routes,leisure_routes, events, certificates, projects, news, analytics
@@ -7,18 +8,38 @@ from app.database import engine, Base
 # Импортируем модели проектов для создания таблиц
 from app import project_models, news_models, analytics_models
 
+# Импортируем планировщик новостей
+from app.news_scheduler import start_scheduler, stop_scheduler
+
 import uvicorn
 import os
+import logging
 from fastapi.staticfiles import StaticFiles
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Создание таблиц в базе данных (включая новые таблицы проектов)
 Base.metadata.create_all(bind=engine)
+
+# Lifespan context manager for startup/shutdown events
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: Start the news publication scheduler
+    logger.info("Starting news publication scheduler...")
+    start_scheduler()
+    yield
+    # Shutdown: Stop the scheduler
+    logger.info("Stopping news publication scheduler...")
+    stop_scheduler()
 
 # Инициализация FastAPI приложения
 app = FastAPI(
     title="Experts Platform API",
     description="API для работы с экспертами на платформе",
-    version="2.0.0"
+    version="2.0.0",
+    lifespan=lifespan
 )
 
 # Настройка CORS - ВАЖНО: делается ДО подключения роутеров

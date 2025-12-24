@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime
+from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean
 from sqlalchemy.sql import func
 from app.database import Base
 
@@ -36,3 +36,10 @@ class News(Base):
     created_at = Column(DateTime, default=func.now(), nullable=False)
     moderated_at = Column(DateTime, nullable=True)
     moderated_by = Column(Integer, nullable=True)  # Admin ID who moderated
+
+    # Publication scheduling fields (new)
+    # status: 'draft' (not ready), 'scheduled' (waiting for publish_at), 'published' (visible to public)
+    status = Column(String(20), default='draft', nullable=False, index=True)
+    publish_at = Column(DateTime, nullable=True, index=True)  # When to auto-publish (required for 'scheduled' status)
+    published_at = Column(DateTime, nullable=True)  # Actual publication timestamp
+    is_admin_created = Column(Boolean, default=False, nullable=False)  # True if created by admin (bypasses moderation)
