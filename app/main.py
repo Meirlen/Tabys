@@ -1,12 +1,12 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from app.routers import experts, auth,volunteer_auth,volunteer_admin_routes,volunteer_routes, vacancies, admin_auth_router,resume_routes,leisure_routes, events, certificates, projects, news, analytics
+from app.routers import experts, auth,volunteer_auth,volunteer_admin_routes,volunteer_routes, vacancies, admin_auth_router,resume_routes,leisure_routes, events, certificates, projects, news, analytics, telegram_auth
 from app.routers import courses_router
 from app.database import engine, Base
 
 # Импортируем модели проектов для создания таблиц
-from app import project_models, news_models, analytics_models
+from app import project_models, news_models, analytics_models, telegram_otp_models
 
 # Импортируем планировщик новостей
 from app.news_scheduler import start_scheduler, stop_scheduler
@@ -113,6 +113,7 @@ app.include_router(news.router)
 app.include_router(news.admin_router)
 app.include_router(news.parser_router)
 app.include_router(analytics.router)
+app.include_router(telegram_auth.router)  # Telegram Bot Authentication
 
 
 # Корневой маршрут
