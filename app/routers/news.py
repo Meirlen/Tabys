@@ -76,6 +76,30 @@ def get_news_by_id(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="News not found")
     return news_item
 
+@router.post("/{id}/increment-view", response_model=news_schemas.NewsResponse)
+def increment_news_view(
+    id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Increment the view count for a news article (public endpoint).
+
+    This endpoint should be called when a user views a news article detail page.
+    """
+    news_item = db.query(news_models.News).filter(news_models.News.id == id).first()
+    if not news_item:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="News not found")
+
+    # Increment view count
+    news_item.view_count = (news_item.view_count or 0) + 1
+
+    db.commit()
+    db.refresh(news_item)
+
+    logger.info(f"Incremented view count for news ID={id} to {news_item.view_count}")
+
+    return news_item
+
 @admin_router.post("/", response_model=news_schemas.NewsResponse, status_code=status.HTTP_201_CREATED)
 def create_news(
     news: news_schemas.NewsCreate,

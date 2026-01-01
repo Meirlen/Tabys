@@ -93,6 +93,9 @@ class NewsResponse(NewsBase):
     published_at: Optional[datetime] = None
     is_admin_created: Optional[bool] = False
 
+    # Analytics fields
+    view_count: Optional[int] = 0
+
     class Config:
         orm_mode = True
 

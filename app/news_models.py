@@ -43,3 +43,6 @@ class News(Base):
     publish_at = Column(DateTime, nullable=True, index=True)  # When to auto-publish (required for 'scheduled' status)
     published_at = Column(DateTime, nullable=True)  # Actual publication timestamp
     is_admin_created = Column(Boolean, default=False, nullable=False)  # True if created by admin (bypasses moderation)
+
+    # Analytics fields
+    view_count = Column(Integer, default=0, nullable=False)  # Number of times the news has been viewed
