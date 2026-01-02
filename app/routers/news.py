@@ -286,6 +286,29 @@ def get_news_stats(
         "rejected": rejected
     }
 
+@admin_router.get("/top-by-views", response_model=List[news_schemas.NewsResponse])
+def get_top_news_by_views(
+    limit: int = Query(10, ge=1, le=100, description="Number of top news to return"),
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(oauth2.get_current_admin)
+):
+    """
+    Get top news articles by view count (admin endpoint).
+
+    Returns the most viewed news articles, useful for analytics dashboard.
+    """
+    news_list = db.query(news_models.News).filter(
+        (news_models.News.status == 'published') |
+        (
+            (news_models.News.moderation_status == 'approved') &
+            (news_models.News.status.in_(['draft', None]))
+        )
+    ).order_by(news_models.News.view_count.desc()).limit(limit).all()
+
+    logger.info(f"Admin {current_admin.id} requested top {limit} news by views")
+
+    return news_list
+
 @admin_router.post("/{id}/approve", response_model=news_schemas.NewsResponse)
 def approve_news(
     id: int,
