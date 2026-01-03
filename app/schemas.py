@@ -1178,6 +1178,10 @@ class AdminResponse(AdminBase):
     id: int
     role: Optional[str] = None
     created_at: datetime
+    approval_status: str = "pending"
+    approval_reason: Optional[str] = None
+    approved_at: Optional[datetime] = None
+    approved_by: Optional[int] = None
 
     class Config:
         from_attributes = True
@@ -1191,9 +1195,15 @@ class AdminChangePassword(BaseModel):
     old_password: str = Field(..., description="Текущий пароль")
     new_password: str = Field(..., min_length=6, max_length=100, description="Новый пароль")
 
+class AdminApprovalUpdate(BaseModel):
+    approval_status: str = Field(..., description="Status: approved or rejected")
+    approval_reason: Optional[str] = Field(None, description="Optional reason for the decision")
+
 class AdminProfileResponse(BaseModel):
     id: int
     name: str
     login: str
     role: Optional[str] = None
     created_at: datetime
+    approval_status: str = "pending"
+    approval_reason: Optional[str] = None

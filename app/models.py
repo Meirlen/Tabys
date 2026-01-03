@@ -599,6 +599,11 @@ class Admin(Base):
     password = Column(String, nullable=True)
     created_at = Column(TIMESTAMP(timezone=True),
                             nullable=False, server_default=text('now()'))
+    # Approval status for registration
+    approval_status = Column(String, default="pending", nullable=False)  # pending, approved, rejected
+    approval_reason = Column(String, nullable=True)  # Optional comment from superadmin
+    approved_at = Column(TIMESTAMP(timezone=True), nullable=True)
+    approved_by = Column(Integer, nullable=True)  # ID of approving superadmin
 
 
 

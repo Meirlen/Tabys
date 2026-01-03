@@ -29,7 +29,8 @@ def verify_password(plain_password: str, hashed_password: str):
 @router.post("/register", response_model=schemas.AdminResponse)
 def register_admin(admin_data: schemas.AdminRegister, db: Session = Depends(get_db)):
     """
-    Регистрация нового администратора
+    Регистрация нового администратора.
+    Все новые регистрации требуют одобрения супер-администратора.
     """
     # Проверяем, существует ли админ с таким логином
     existing_admin = db.query(models.Admin).filter(
@@ -45,12 +46,13 @@ def register_admin(admin_data: schemas.AdminRegister, db: Session = Depends(get_
     # Хэшируем пароль
     hashed_password = hash_password(admin_data.password)
 
-    # Создаем нового администратора
+    # Создаем нового администратора со статусом pending
     new_admin = models.Admin(
         name=admin_data.name,
         role=admin_data.role,
         login=admin_data.login,
-        password=hashed_password
+        password=hashed_password,
+        approval_status="pending"
     )
 
     db.add(new_admin)
@@ -111,6 +113,49 @@ def login_admin(login_data: schemas.AdminLogin, request: Request, db: Session = 
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Неверный логин или пароль"
+        )
+
+    # Проверяем статус одобрения
+    approval_status = getattr(admin, 'approval_status', 'approved')
+    if approval_status == "pending":
+        login_log = analytics_models.LoginHistory(
+            admin_id=admin.id,
+            user_type='admin',
+            login=login_data.login,
+            status='failed',
+            failure_reason='Registration pending approval',
+            ip_address=ip_address,
+            user_agent=user_agent
+        )
+        db.add(login_log)
+        db.commit()
+
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Ваша регистрация ожидает одобрения администратором"
+        )
+
+    if approval_status == "rejected":
+        rejection_reason = getattr(admin, 'approval_reason', None)
+        detail_message = "Ваша регистрация была отклонена"
+        if rejection_reason:
+            detail_message += f": {rejection_reason}"
+
+        login_log = analytics_models.LoginHistory(
+            admin_id=admin.id,
+            user_type='admin',
+            login=login_data.login,
+            status='failed',
+            failure_reason='Registration rejected',
+            ip_address=ip_address,
+            user_agent=user_agent
+        )
+        db.add(login_log)
+        db.commit()
+
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=detail_message
         )
 
     # Log successful login
@@ -200,7 +245,115 @@ def get_all_admins(
             "name": admin.name,
             "login": admin.login,
             "role": admin.role,
-            "created_at": admin.created_at
+            "created_at": admin.created_at,
+            "approval_status": getattr(admin, 'approval_status', 'approved'),
+            "approval_reason": getattr(admin, 'approval_reason', None),
+            "approved_at": getattr(admin, 'approved_at', None),
+            "approved_by": getattr(admin, 'approved_by', None)
         }
         for admin in admins
     ]
+
+
+@router.get("/pending")
+def get_pending_admins(
+        db: Session = Depends(get_db),
+        current_admin: models.Admin = Depends(oauth2.get_current_admin)
+):
+    """
+    Получение списка администраторов, ожидающих одобрения (доступно только для супер-админов)
+    """
+    if current_admin.role != "super_admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="У вас нет доступа к этому разделу"
+        )
+
+    pending_admins = db.query(models.Admin).filter(
+        models.Admin.approval_status == "pending"
+    ).order_by(models.Admin.created_at.desc()).all()
+
+    return [
+        {
+            "id": admin.id,
+            "name": admin.name,
+            "login": admin.login,
+            "role": admin.role,
+            "created_at": admin.created_at,
+            "approval_status": admin.approval_status
+        }
+        for admin in pending_admins
+    ]
+
+
+@router.patch("/{admin_id}/approve")
+def approve_admin(
+        admin_id: int,
+        approval_data: schemas.AdminApprovalUpdate,
+        db: Session = Depends(get_db),
+        current_admin: models.Admin = Depends(oauth2.get_current_admin)
+):
+    """
+    Одобрение или отклонение регистрации администратора (доступно только для супер-админов)
+    """
+    if current_admin.role != "super_admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="У вас нет доступа к этому разделу"
+        )
+
+    if approval_data.approval_status not in ["approved", "rejected"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Статус должен быть 'approved' или 'rejected'"
+        )
+
+    admin = db.query(models.Admin).filter(models.Admin.id == admin_id).first()
+
+    if not admin:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Администратор не найден"
+        )
+
+    admin.approval_status = approval_data.approval_status
+    admin.approval_reason = approval_data.approval_reason
+    admin.approved_at = datetime.now()
+    admin.approved_by = current_admin.id
+
+    db.commit()
+    db.refresh(admin)
+
+    status_text = "одобрена" if approval_data.approval_status == "approved" else "отклонена"
+
+    return {
+        "message": f"Регистрация администратора {status_text}",
+        "admin": {
+            "id": admin.id,
+            "name": admin.name,
+            "login": admin.login,
+            "role": admin.role,
+            "approval_status": admin.approval_status,
+            "approval_reason": admin.approval_reason,
+            "approved_at": admin.approved_at,
+            "approved_by": admin.approved_by
+        }
+    }
+
+
+@router.get("/pending/count")
+def get_pending_count(
+        db: Session = Depends(get_db),
+        current_admin: models.Admin = Depends(oauth2.get_current_admin)
+):
+    """
+    Получение количества ожидающих одобрения регистраций (для отображения badge)
+    """
+    if current_admin.role != "super_admin":
+        return {"count": 0}
+
+    count = db.query(models.Admin).filter(
+        models.Admin.approval_status == "pending"
+    ).count()
+
+    return {"count": count}
