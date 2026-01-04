@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     secret_key: str
     algorithm: str
     access_token_expire_minutes: int
+    telegram_bot_token: str = ""  # Optional: for broadcast messaging
 
     class Config:
         env_file = ".env"

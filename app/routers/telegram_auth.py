@@ -207,6 +207,7 @@ def verify_otp(
         access_token=access_token,
         token_type="bearer",
         admin_id=admin.id,
+        admin_name=admin.name,
         role=admin_role,
         telegram_user_id=request.telegram_user_id,
         session_created=session_created
@@ -304,6 +305,7 @@ def restore_session(
         access_token=access_token,
         token_type="bearer",
         admin_id=admin.id,
+        admin_name=admin.name,
         role=admin_role,
         telegram_user_id=request.telegram_user_id,
         session_created=False  # Session was restored, not created

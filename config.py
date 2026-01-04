@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     WHATSAPP_API_KEY: str
     WHATSAPP_INSTANCE: str
     MOBIZON_API_KEY: str
+    telegram_bot_token: str = ""  # Optional: for broadcast messaging
 
     class Config:
         env_file = ".env"

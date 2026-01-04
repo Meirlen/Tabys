@@ -91,6 +91,7 @@ class OTPVerifyResponse(BaseModel):
     access_token: str = Field(..., description="JWT access token")
     token_type: str = Field(default="bearer")
     admin_id: int = Field(..., description="Backend admin ID")
+    admin_name: str = Field(..., description="Admin name")
     role: str = Field(..., description="Admin role")
     telegram_user_id: str = Field(..., description="Telegram user ID")
     session_created: bool = Field(..., description="Whether new session was created")
@@ -101,6 +102,7 @@ class OTPVerifyResponse(BaseModel):
                 "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
                 "token_type": "bearer",
                 "admin_id": 42,
+                "admin_name": "John Doe",
                 "role": "administrator",
                 "telegram_user_id": "123456789",
                 "session_created": True
