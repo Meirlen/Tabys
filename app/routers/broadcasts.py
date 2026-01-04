@@ -103,9 +103,9 @@ def create_broadcast(
     broadcast = Broadcast(
         title=request.title,
         message=request.message,
-        target_audience=request.target_audience,
+        target_audience=request.target_audience.value if isinstance(request.target_audience, BroadcastTargetAudience) else request.target_audience,
         target_role=request.target_role,
-        status=BroadcastStatus.SCHEDULED if request.scheduled_at else BroadcastStatus.DRAFT,
+        status=(BroadcastStatus.SCHEDULED if request.scheduled_at else BroadcastStatus.DRAFT).value,
         scheduled_at=request.scheduled_at,
         created_by=current_admin.id
     )
@@ -227,12 +227,12 @@ def update_broadcast(
     if request.message is not None:
         broadcast.message = request.message
     if request.target_audience is not None:
-        broadcast.target_audience = request.target_audience
+        broadcast.target_audience = request.target_audience.value if isinstance(request.target_audience, BroadcastTargetAudience) else request.target_audience
     if request.target_role is not None:
         broadcast.target_role = request.target_role
     if request.scheduled_at is not None:
         broadcast.scheduled_at = request.scheduled_at
-        broadcast.status = BroadcastStatus.SCHEDULED
+        broadcast.status = BroadcastStatus.SCHEDULED.value
 
     db.commit()
     db.refresh(broadcast)
@@ -294,12 +294,12 @@ async def send_broadcast(
         delivery = BroadcastDelivery(
             broadcast_id=broadcast.id,
             telegram_user_id=telegram_user_id,
-            status=DeliveryStatus.PENDING
+            status=DeliveryStatus.PENDING.value
         )
         db.add(delivery)
 
     # Update broadcast status
-    broadcast.status = BroadcastStatus.SENDING
+    broadcast.status = BroadcastStatus.SENDING.value
     broadcast.total_recipients = len(telegram_user_ids)
     broadcast.sent_at = datetime.utcnow()
 
@@ -418,7 +418,7 @@ async def retry_broadcast(
         )
 
     # Reset status to SENDING
-    broadcast.status = BroadcastStatus.SENDING
+    broadcast.status = BroadcastStatus.SENDING.value
     db.commit()
 
     # Schedule background task to send messages
@@ -499,7 +499,7 @@ async def process_broadcast_deliveries(broadcast_id: int):
         if not bot_token:
             # Bot token not configured, mark as failed
             logger.error(f"Telegram bot token not configured")
-            broadcast.status = BroadcastStatus.FAILED
+            broadcast.status = BroadcastStatus.FAILED.value
             db.commit()
             return
 
@@ -528,12 +528,12 @@ async def process_broadcast_deliveries(broadcast_id: int):
             )
 
             if success:
-                delivery.status = DeliveryStatus.SENT
+                delivery.status = DeliveryStatus.SENT.value
                 delivery.sent_at = datetime.utcnow()
                 sent_count += 1
                 logger.info(f"Successfully sent to {delivery.telegram_user_id}")
             else:
-                delivery.status = DeliveryStatus.FAILED
+                delivery.status = DeliveryStatus.FAILED.value
                 delivery.error_message = error_msg
                 failed_count += 1
                 logger.error(f"Failed to send to {delivery.telegram_user_id}: {error_msg}")
@@ -545,7 +545,7 @@ async def process_broadcast_deliveries(broadcast_id: int):
         # Update broadcast statistics
         broadcast.sent_count = sent_count
         broadcast.failed_count = failed_count
-        broadcast.status = BroadcastStatus.SENT
+        broadcast.status = BroadcastStatus.SENT.value
         broadcast.completed_at = datetime.utcnow()
 
         db.commit()
@@ -554,7 +554,7 @@ async def process_broadcast_deliveries(broadcast_id: int):
     except Exception as e:
         logger.error(f"Error processing broadcast {broadcast_id}: {str(e)}")
         if broadcast:
-            broadcast.status = BroadcastStatus.FAILED
+            broadcast.status = BroadcastStatus.FAILED.value
             db.commit()
     finally:
         db.close()
