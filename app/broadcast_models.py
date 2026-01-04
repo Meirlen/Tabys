@@ -47,17 +47,17 @@ class Broadcast(Base):
 
     # Targeting
     target_audience = Column(
-        Enum(BroadcastTargetAudience),
+        Enum(BroadcastTargetAudience, values_callable=lambda obj: [e.value for e in obj]),
         nullable=False,
-        default=BroadcastTargetAudience.ALL_TELEGRAM_USERS
+        default=BroadcastTargetAudience.ALL_TELEGRAM_USERS.value
     )
     target_role = Column(String(50), nullable=True)  # Used when target_audience = BY_ROLE
 
     # Status tracking
     status = Column(
-        Enum(BroadcastStatus),
+        Enum(BroadcastStatus, values_callable=lambda obj: [e.value for e in obj]),
         nullable=False,
-        default=BroadcastStatus.DRAFT
+        default=BroadcastStatus.DRAFT.value
     )
 
     # Statistics
@@ -92,9 +92,9 @@ class BroadcastDelivery(Base):
 
     # Delivery status
     status = Column(
-        Enum(DeliveryStatus),
+        Enum(DeliveryStatus, values_callable=lambda obj: [e.value for e in obj]),
         nullable=False,
-        default=DeliveryStatus.PENDING
+        default=DeliveryStatus.PENDING.value
     )
 
     # Timestamps

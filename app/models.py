@@ -134,7 +134,7 @@ class VacancyApplication(Base):
     __tablename__ = "vacancy_applications_v2"
 
     id = Column(Integer, primary_key=True, index=True)
-    vacancy_id = Column(Integer, ForeignKey("vacancies_new_2025.id", ondelete='CASCADE'), nullable=False, index=True)
+    vacancy_id = Column(Integer, ForeignKey("vacancies_new_2025_.id", ondelete='CASCADE'), nullable=False, index=True)
     user_id = Column(Integer, nullable=False, index=True)
     resume_id = Column(Integer, ForeignKey("resumes_.id", ondelete='SET NULL'), nullable=True, index=True)
     cover_letter = Column(Text, nullable=True)
