@@ -313,3 +313,136 @@ def delete_event_photo(
     )
 
     return {"message": "Photo deleted successfully"}
+
+
+# ========== ADMIN ENDPOINTS WITH RBAC ==========
+
+from app.oauth2 import get_current_admin
+from app.rbac import Module, Permission, require_module_access, require_permission, apply_owner_filter
+from app import models
+
+
+@router.get("/admin/list", response_model=List[EventList])
+def admin_list_events(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    format: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
+    from_date: Optional[datetime] = Query(None),
+    to_date: Optional[datetime] = Query(None),
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_module_access(Module.EVENTS, allow_read_only=True))
+):
+    """Admin: List events with RBAC filtering (NPO sees only their own)"""
+    # Start with base query
+    query = db.query(models.Event)
+
+    # Apply owner-based filtering for NPO/MSB roles
+    query = apply_owner_filter(query, models.Event, current_admin)
+
+    # Apply other filters
+    if format:
+        query = query.filter(models.Event.format == format)
+
+    if search:
+        query = query.filter(
+            (models.Event.title.ilike(f"%{search}%")) |
+            (models.Event.description.ilike(f"%{search}%"))
+        )
+
+    if from_date:
+        query = query.filter(models.Event.event_date >= from_date)
+
+    if to_date:
+        query = query.filter(models.Event.event_date <= to_date)
+
+    # Execute query with pagination
+    events = query.order_by(models.Event.event_date.desc()).offset(skip).limit(limit).all()
+
+    return events
+
+
+@router.post("/admin/create", response_model=EventDetail, status_code=status.HTTP_201_CREATED)
+def admin_create_event(
+    event: EventCreate,
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_permission(Module.EVENTS, Permission.CREATE))
+):
+    """Admin: Create event with admin_id tracking"""
+    # Create event and set admin_id
+    new_event = crud.create_event(db=db, event=event)
+    new_event.admin_id = current_admin.id
+    db.commit()
+    db.refresh(new_event)
+
+    return new_event
+
+
+@router.put("/admin/{event_id}", response_model=EventDetail)
+def admin_update_event(
+    event_id: int,
+    event_update: EventUpdate,
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_permission(Module.EVENTS, Permission.UPDATE))
+):
+    """Admin: Update event with ownership check"""
+    # Get existing event
+    query = db.query(models.Event).filter(models.Event.id == event_id)
+
+    # Apply owner filter for NPO/MSB
+    query = apply_owner_filter(query, models.Event, current_admin)
+
+    existing_event = query.first()
+    if not existing_event:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Мероприятие не найдено или у вас нет прав на его редактирование"
+        )
+
+    return crud.update_event(db=db, event_id=event_id, event_update=event_update)
+
+
+@router.delete("/admin/{event_id}", status_code=status.HTTP_204_NO_CONTENT)
+def admin_delete_event(
+    event_id: int,
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_permission(Module.EVENTS, Permission.DELETE))
+):
+    """Admin: Delete event with ownership check"""
+    # Get existing event
+    query = db.query(models.Event).filter(models.Event.id == event_id)
+
+    # Apply owner filter for NPO/MSB
+    query = apply_owner_filter(query, models.Event, current_admin)
+
+    existing_event = query.first()
+    if not existing_event:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Мероприятие не найдено или у вас нет прав на его удаление"
+        )
+
+    crud.delete_event(db=db, event_id=event_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/admin/{event_id}", response_model=EventDetail)
+def admin_get_event(
+    event_id: int,
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_module_access(Module.EVENTS, allow_read_only=True))
+):
+    """Admin: Get event details with ownership check"""
+    query = db.query(models.Event).filter(models.Event.id == event_id)
+
+    # Apply owner filter for NPO/MSB
+    query = apply_owner_filter(query, models.Event, current_admin)
+
+    event = query.first()
+    if not event:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Мероприятие не найдено или у вас нет прав на его просмотр"
+        )
+
+    return event

@@ -124,6 +124,7 @@ class Vacancy(Base):
     contact_email = Column(String, nullable=True)
     contact_phone = Column(String, nullable=True)
     company_name = Column(String, nullable=True)
+    admin_id = Column(Integer, ForeignKey('adminstrators_shaqyru1.id'), nullable=True, index=True)  # Owner tracking for RBAC
     is_active = Column(Boolean, default=True, index=True)
     deadline = Column(Date, nullable=True)
     created_at = Column(DateTime, nullable=False)
@@ -160,6 +161,7 @@ class Event(Base):
     format = Column(Enum("Online", "Offline", name="event_format"), nullable=False)
     description = Column(Text, nullable=False)
     event_photo = Column(String, nullable=True)  # URL or path to event photo
+    admin_id = Column(Integer, ForeignKey('adminstrators_shaqyru1.id'), nullable=True, index=True)  # Owner tracking for RBAC
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

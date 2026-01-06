@@ -27,6 +27,7 @@ class ProjectCreate(BaseModel):
     end_date: datetime
     photo_url: Optional[str] = None
     video_url: Optional[str] = None
+    status: Optional[ProjectStatus] = None
     creator_id: Optional[int] = None
 
     @validator('end_date')

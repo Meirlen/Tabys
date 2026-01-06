@@ -43,6 +43,9 @@ class Ticket(Base):
     # Статус
     status = Column(String(50), default="active")  # active, inactive, sold_out
 
+    # Owner tracking for RBAC
+    admin_id = Column(Integer, nullable=True, index=True)  # ID of admin who created this ticket
+
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
 
@@ -93,6 +96,9 @@ class Place(Base):
     # Статус
     status = Column(String(50), default="active")  # active, inactive
 
+    # Owner tracking for RBAC
+    admin_id = Column(Integer, nullable=True, index=True)  # ID of admin who created this place
+
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
 
@@ -138,6 +144,9 @@ class PromoAction(Base):
 
     # Статус
     status = Column(String(50), default="active")  # active, inactive, expired
+
+    # Owner tracking for RBAC
+    admin_id = Column(Integer, nullable=True, index=True)  # ID of admin who created this promo
 
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())

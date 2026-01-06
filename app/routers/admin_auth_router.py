@@ -223,7 +223,7 @@ def change_admin_password(
     return {"message": "Пароль успешно изменен"}
 
 
-@router.get("/list")
+@router.get("/list", response_model=list[schemas.AdminResponse])
 def get_all_admins(
         db: Session = Depends(get_db),
         current_admin: models.Admin = Depends(oauth2.get_current_admin)
@@ -239,23 +239,10 @@ def get_all_admins(
         )
 
     admins = db.query(models.Admin).all()
-    return [
-        {
-            "id": admin.id,
-            "name": admin.name,
-            "login": admin.login,
-            "role": admin.role,
-            "created_at": admin.created_at,
-            "approval_status": getattr(admin, 'approval_status', 'approved'),
-            "approval_reason": getattr(admin, 'approval_reason', None),
-            "approved_at": getattr(admin, 'approved_at', None),
-            "approved_by": getattr(admin, 'approved_by', None)
-        }
-        for admin in admins
-    ]
+    return admins
 
 
-@router.get("/pending")
+@router.get("/pending", response_model=list[schemas.AdminResponse])
 def get_pending_admins(
         db: Session = Depends(get_db),
         current_admin: models.Admin = Depends(oauth2.get_current_admin)
@@ -273,20 +260,10 @@ def get_pending_admins(
         models.Admin.approval_status == "pending"
     ).order_by(models.Admin.created_at.desc()).all()
 
-    return [
-        {
-            "id": admin.id,
-            "name": admin.name,
-            "login": admin.login,
-            "role": admin.role,
-            "created_at": admin.created_at,
-            "approval_status": admin.approval_status
-        }
-        for admin in pending_admins
-    ]
+    return pending_admins
 
 
-@router.patch("/{admin_id}/approve")
+@router.patch("/{admin_id}/approve", response_model=schemas.AdminApprovalResponse)
 def approve_admin(
         admin_id: int,
         approval_data: schemas.AdminApprovalUpdate,
@@ -328,16 +305,7 @@ def approve_admin(
 
     return {
         "message": f"Регистрация администратора {status_text}",
-        "admin": {
-            "id": admin.id,
-            "name": admin.name,
-            "login": admin.login,
-            "role": admin.role,
-            "approval_status": admin.approval_status,
-            "approval_reason": admin.approval_reason,
-            "approved_at": admin.approved_at,
-            "approved_by": admin.approved_by
-        }
+        "admin": admin
     }
 
 

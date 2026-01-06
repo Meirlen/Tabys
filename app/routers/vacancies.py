@@ -476,3 +476,188 @@ def get_vacancies_by_profession(db: Session = Depends(get_db)):
 def get_vacancies_by_city(db: Session = Depends(get_db)):
     """Статистика по городам"""
     return crud.get_vacancies_by_city(db)
+
+
+# ========== ADMIN ENDPOINTS WITH RBAC ==========
+
+from app.oauth2 import get_current_admin
+from app.rbac import Module, Permission, require_module_access, require_permission, apply_owner_filter
+
+
+@router.get("/admin/list")
+def admin_list_vacancies(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    keyword: Optional[str] = Query(None),
+    lang: Optional[str] = Query("ru", regex="^(kz|ru)$"),
+    profession_id: Optional[int] = Query(None),
+    city_id: Optional[int] = Query(None),
+    is_active: Optional[bool] = Query(None),
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_module_access(Module.VACANCIES, allow_read_only=True))
+):
+    """Admin: List vacancies with RBAC filtering (MSB sees only their own)"""
+    # Start with base query
+    query = db.query(models.Vacancy)
+
+    # Apply owner-based filtering for MSB/NPO roles
+    query = apply_owner_filter(query, models.Vacancy, current_admin)
+
+    # Apply other filters
+    if keyword:
+        if lang == "kz":
+            query = query.filter(
+                (models.Vacancy.title_kz.ilike(f"%{keyword}%")) |
+                (models.Vacancy.description_kz.ilike(f"%{keyword}%"))
+            )
+        else:
+            query = query.filter(
+                (models.Vacancy.title_ru.ilike(f"%{keyword}%")) |
+                (models.Vacancy.description_ru.ilike(f"%{keyword}%"))
+            )
+
+    if profession_id:
+        query = query.filter(models.Vacancy.profession_id == profession_id)
+
+    if city_id:
+        query = query.filter(models.Vacancy.city_id == city_id)
+
+    if is_active is not None:
+        query = query.filter(models.Vacancy.is_active == is_active)
+
+    # Execute query with pagination
+    vacancies = query.order_by(models.Vacancy.created_at.desc()).offset(skip).limit(limit).all()
+
+    return vacancies
+
+
+@router.post("/admin/create", status_code=status.HTTP_201_CREATED)
+def admin_create_vacancy(
+    vacancy: VacancyCreate,
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_permission(Module.VACANCIES, Permission.CREATE))
+):
+    """Admin: Create vacancy with admin_id tracking"""
+    # Validation checks (profession, city, skills)
+    if vacancy.profession_id:
+        profession = db.query(resume_models.Profession).filter(
+            resume_models.Profession.id == vacancy.profession_id,
+            resume_models.Profession.is_active == True
+        ).first()
+        if not profession:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Профессия не найдена"
+            )
+
+    if vacancy.city_id:
+        city = db.query(resume_models.City).filter(
+            resume_models.City.id == vacancy.city_id,
+            resume_models.City.is_active == True
+        ).first()
+        if not city:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Город не найден"
+            )
+
+    # Create vacancy and set admin_id
+    new_vacancy = crud.create_vacancy(db=db, vacancy=vacancy)
+    new_vacancy.admin_id = current_admin.id
+    db.commit()
+    db.refresh(new_vacancy)
+
+    return new_vacancy
+
+
+@router.put("/admin/{vacancy_id}")
+def admin_update_vacancy(
+    vacancy_id: int,
+    vacancy: VacancyUpdate,
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_permission(Module.VACANCIES, Permission.UPDATE))
+):
+    """Admin: Update vacancy with ownership check"""
+    # Get existing vacancy
+    query = db.query(models.Vacancy).filter(models.Vacancy.id == vacancy_id)
+
+    # Apply owner filter for MSB/NPO
+    query = apply_owner_filter(query, models.Vacancy, current_admin)
+
+    existing_vacancy = query.first()
+    if not existing_vacancy:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Вакансия не найдена или у вас нет прав на её редактирование"
+        )
+
+    # Validation checks
+    if vacancy.profession_id:
+        profession = db.query(resume_models.Profession).filter(
+            resume_models.Profession.id == vacancy.profession_id,
+            resume_models.Profession.is_active == True
+        ).first()
+        if not profession:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Профессия не найдена"
+            )
+
+    if vacancy.city_id:
+        city = db.query(resume_models.City).filter(
+            resume_models.City.id == vacancy.city_id,
+            resume_models.City.is_active == True
+        ).first()
+        if not city:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Город не найден"
+            )
+
+    return crud.update_vacancy(db=db, vacancy_id=vacancy_id, vacancy_update=vacancy)
+
+
+@router.delete("/admin/{vacancy_id}", status_code=status.HTTP_204_NO_CONTENT)
+def admin_delete_vacancy(
+    vacancy_id: int,
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_permission(Module.VACANCIES, Permission.DELETE))
+):
+    """Admin: Delete vacancy with ownership check"""
+    # Get existing vacancy
+    query = db.query(models.Vacancy).filter(models.Vacancy.id == vacancy_id)
+
+    # Apply owner filter for MSB/NPO
+    query = apply_owner_filter(query, models.Vacancy, current_admin)
+
+    existing_vacancy = query.first()
+    if not existing_vacancy:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Вакансия не найдена или у вас нет прав на её удаление"
+        )
+
+    crud.delete_vacancy(db=db, vacancy_id=vacancy_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/admin/{vacancy_id}")
+def admin_get_vacancy(
+    vacancy_id: int,
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_module_access(Module.VACANCIES, allow_read_only=True))
+):
+    """Admin: Get vacancy details with ownership check"""
+    query = db.query(models.Vacancy).filter(models.Vacancy.id == vacancy_id)
+
+    # Apply owner filter for MSB/NPO
+    query = apply_owner_filter(query, models.Vacancy, current_admin)
+
+    vacancy = query.first()
+    if not vacancy:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Вакансия не найдена или у вас нет прав на её просмотр"
+        )
+
+    return vacancy

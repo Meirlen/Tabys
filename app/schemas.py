@@ -1199,6 +1199,10 @@ class AdminApprovalUpdate(BaseModel):
     approval_status: str = Field(..., description="Status: approved or rejected")
     approval_reason: Optional[str] = Field(None, description="Optional reason for the decision")
 
+class AdminApprovalResponse(BaseModel):
+    message: str
+    admin: AdminResponse
+
 class AdminProfileResponse(BaseModel):
     id: int
     name: str

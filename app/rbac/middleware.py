@@ -134,3 +134,35 @@ def check_admin_permission(admin: models.Admin, module: str, permission: str) ->
     """
     admin_role = admin.role.value if hasattr(admin.role, 'value') else admin.role
     return has_permission(admin_role, module, permission)
+
+
+def should_filter_by_owner(admin: models.Admin) -> bool:
+    """
+    Check if admin should only see their own content (MSB and NPO roles)
+
+    Args:
+        admin: Admin model instance
+
+    Returns:
+        bool: True if content should be filtered by admin_id
+    """
+    admin_role = admin.role.value if hasattr(admin.role, 'value') else admin.role
+    return admin_role in [Role.MSB, Role.NPO]
+
+
+def apply_owner_filter(query, model_class, admin: models.Admin):
+    """
+    Apply owner-based filtering to a query if admin has ownership restrictions
+
+    Args:
+        query: SQLAlchemy query object
+        model_class: Model class being queried (must have admin_id field)
+        admin: Admin model instance
+
+    Returns:
+        Filtered query if admin should only see their own content, otherwise original query
+    """
+    if should_filter_by_owner(admin):
+        # Filter to only show items created by this admin
+        return query.filter(model_class.admin_id == admin.id)
+    return query

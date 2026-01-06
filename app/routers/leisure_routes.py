@@ -1083,3 +1083,266 @@ def get_leisure_stats(db: Session = Depends(get_db)):
             for p in top_places
         ]
     }
+
+
+# ========== ADMIN ENDPOINTS WITH RBAC FOR PLACES ==========
+
+from app.oauth2 import get_current_admin
+from app.rbac import Module, Permission, require_module_access, require_permission, apply_owner_filter
+from app import models
+
+
+@router.get("/admin/places/list")
+def admin_list_places(
+    skip: int = 0,
+    limit: int = 100,
+    category_id: Optional[int] = None,
+    status: Optional[str] = None,
+    search: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_module_access(Module.LEISURE, allow_read_only=True))
+):
+    """Admin: List places with RBAC filtering (MSB sees only their own)"""
+    query = db.query(Place)
+
+    # Apply owner-based filtering for MSB/NPO roles
+    query = apply_owner_filter(query, Place, current_admin)
+
+    # Apply filters
+    if category_id:
+        query = query.filter(Place.category_id == category_id)
+    if status:
+        query = query.filter(Place.status == status)
+    if search:
+        query = query.filter(
+            (Place.title.ilike(f"%{search}%")) |
+            (Place.title_ru.ilike(f"%{search}%"))
+        )
+
+    places = query.order_by(Place.created_at.desc()).offset(skip).limit(limit).all()
+    return places
+
+
+@router.post("/admin/places/create", status_code=status.HTTP_201_CREATED)
+def admin_create_place(
+    place_data: dict,
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_permission(Module.LEISURE, Permission.CREATE))
+):
+    """Admin: Create place with admin_id tracking"""
+    new_place = Place(**place_data, admin_id=current_admin.id)
+    db.add(new_place)
+    db.commit()
+    db.refresh(new_place)
+    return new_place
+
+
+@router.put("/admin/places/{place_id}")
+def admin_update_place(
+    place_id: int,
+    place_data: dict,
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_permission(Module.LEISURE, Permission.UPDATE))
+):
+    """Admin: Update place with ownership check"""
+    query = db.query(Place).filter(Place.id == place_id)
+    query = apply_owner_filter(query, Place, current_admin)
+
+    place = query.first()
+    if not place:
+        raise HTTPException(status_code=404, detail="Место не найдено или у вас нет прав на его редактирование")
+
+    for key, value in place_data.items():
+        setattr(place, key, value)
+
+    db.commit()
+    db.refresh(place)
+    return place
+
+
+@router.delete("/admin/places/{place_id}", status_code=status.HTTP_204_NO_CONTENT)
+def admin_delete_place(
+    place_id: int,
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_permission(Module.LEISURE, Permission.DELETE))
+):
+    """Admin: Delete place with ownership check"""
+    query = db.query(Place).filter(Place.id == place_id)
+    query = apply_owner_filter(query, Place, current_admin)
+
+    place = query.first()
+    if not place:
+        raise HTTPException(status_code=404, detail="Место не найдено или у вас нет прав на его удаление")
+
+    db.delete(place)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# ========== ADMIN ENDPOINTS WITH RBAC FOR TICKETS ==========
+
+@router.get("/admin/tickets/list")
+def admin_list_tickets(
+    skip: int = 0,
+    limit: int = 100,
+    status: Optional[str] = None,
+    search: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_module_access(Module.LEISURE, allow_read_only=True))
+):
+    """Admin: List tickets with RBAC filtering (MSB sees only their own)"""
+    query = db.query(Ticket)
+
+    # Apply owner-based filtering for MSB/NPO roles
+    query = apply_owner_filter(query, Ticket, current_admin)
+
+    # Apply filters
+    if status:
+        query = query.filter(Ticket.status == status)
+    if search:
+        query = query.filter(
+            (Ticket.title.ilike(f"%{search}%")) |
+            (Ticket.title_ru.ilike(f"%{search}%"))
+        )
+
+    tickets = query.order_by(Ticket.created_at.desc()).offset(skip).limit(limit).all()
+    return tickets
+
+
+@router.post("/admin/tickets/create", status_code=status.HTTP_201_CREATED)
+def admin_create_ticket(
+    ticket_data: dict,
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_permission(Module.LEISURE, Permission.CREATE))
+):
+    """Admin: Create ticket with admin_id tracking"""
+    new_ticket = Ticket(**ticket_data, admin_id=current_admin.id)
+    db.add(new_ticket)
+    db.commit()
+    db.refresh(new_ticket)
+    return new_ticket
+
+
+@router.put("/admin/tickets/{ticket_id}")
+def admin_update_ticket(
+    ticket_id: int,
+    ticket_data: dict,
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_permission(Module.LEISURE, Permission.UPDATE))
+):
+    """Admin: Update ticket with ownership check"""
+    query = db.query(Ticket).filter(Ticket.id == ticket_id)
+    query = apply_owner_filter(query, Ticket, current_admin)
+
+    ticket = query.first()
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Билет не найден или у вас нет прав на его редактирование")
+
+    for key, value in ticket_data.items():
+        setattr(ticket, key, value)
+
+    db.commit()
+    db.refresh(ticket)
+    return ticket
+
+
+@router.delete("/admin/tickets/{ticket_id}", status_code=status.HTTP_204_NO_CONTENT)
+def admin_delete_ticket(
+    ticket_id: int,
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_permission(Module.LEISURE, Permission.DELETE))
+):
+    """Admin: Delete ticket with ownership check"""
+    query = db.query(Ticket).filter(Ticket.id == ticket_id)
+    query = apply_owner_filter(query, Ticket, current_admin)
+
+    ticket = query.first()
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Билет не найден или у вас нет прав на его удаление")
+
+    db.delete(ticket)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# ========== ADMIN ENDPOINTS WITH RBAC FOR PROMO ACTIONS ==========
+
+@router.get("/admin/promo/list")
+def admin_list_promos(
+    skip: int = 0,
+    limit: int = 100,
+    status: Optional[str] = None,
+    related_type: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_module_access(Module.LEISURE, allow_read_only=True))
+):
+    """Admin: List promo actions with RBAC filtering (MSB sees only their own)"""
+    query = db.query(PromoAction)
+
+    # Apply owner-based filtering for MSB/NPO roles
+    query = apply_owner_filter(query, PromoAction, current_admin)
+
+    # Apply filters
+    if status:
+        query = query.filter(PromoAction.status == status)
+    if related_type:
+        query = query.filter(PromoAction.related_type == related_type)
+
+    promos = query.order_by(PromoAction.created_at.desc()).offset(skip).limit(limit).all()
+    return promos
+
+
+@router.post("/admin/promo/create", status_code=status.HTTP_201_CREATED)
+def admin_create_promo(
+    promo_data: dict,
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_permission(Module.LEISURE, Permission.CREATE))
+):
+    """Admin: Create promo action with admin_id tracking"""
+    new_promo = PromoAction(**promo_data, admin_id=current_admin.id)
+    db.add(new_promo)
+    db.commit()
+    db.refresh(new_promo)
+    return new_promo
+
+
+@router.put("/admin/promo/{promo_id}")
+def admin_update_promo(
+    promo_id: int,
+    promo_data: dict,
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_permission(Module.LEISURE, Permission.UPDATE))
+):
+    """Admin: Update promo action with ownership check"""
+    query = db.query(PromoAction).filter(PromoAction.id == promo_id)
+    query = apply_owner_filter(query, PromoAction, current_admin)
+
+    promo = query.first()
+    if not promo:
+        raise HTTPException(status_code=404, detail="Промо-акция не найдена или у вас нет прав на её редактирование")
+
+    for key, value in promo_data.items():
+        setattr(promo, key, value)
+
+    db.commit()
+    db.refresh(promo)
+    return promo
+
+
+@router.delete("/admin/promo/{promo_id}", status_code=status.HTTP_204_NO_CONTENT)
+def admin_delete_promo(
+    promo_id: int,
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_permission(Module.LEISURE, Permission.DELETE))
+):
+    """Admin: Delete promo action with ownership check"""
+    query = db.query(PromoAction).filter(PromoAction.id == promo_id)
+    query = apply_owner_filter(query, PromoAction, current_admin)
+
+    promo = query.first()
+    if not promo:
+        raise HTTPException(status_code=404, detail="Промо-акция не найдена или у вас нет прав на её удаление")
+
+    db.delete(promo)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

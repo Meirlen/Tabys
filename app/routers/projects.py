@@ -53,7 +53,7 @@ def create_project(
         end_date=project_data.end_date,
         photo_url=project_data.photo_url,
         video_url=project_data.video_url,
-        creator_id=None  # Временно убираем current_user.get("user_id")
+        admin_id=None  # Will be set by admin endpoints
     )
 
     db.add(new_project)
@@ -1626,3 +1626,178 @@ def create_fake_votes(
         "new_votes": participant.votes_count,
         "fake_votes_created": len(fake_votes)
     }
+
+
+# ========== ADMIN ENDPOINTS WITH RBAC ==========
+
+from app.oauth2 import get_current_admin
+from app.rbac import Module, Permission, require_module_access, require_permission, apply_owner_filter
+from app import models
+from fastapi import Query
+
+
+@router.get("/admin/list")
+def admin_list_projects(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    status: Optional[str] = Query(None),
+    project_type: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_module_access(Module.PROJECTS, allow_read_only=True))
+):
+    """Admin: List projects with RBAC filtering (NPO sees only their own)"""
+    # Start with base query
+    query = db.query(Project)
+
+    # Apply owner-based filtering for NPO/MSB roles
+    query = apply_owner_filter(query, Project, current_admin)
+
+    # Apply other filters
+    if status:
+        query = query.filter(Project.status == status)
+
+    if project_type:
+        query = query.filter(Project.project_type == project_type)
+
+    if search:
+        query = query.filter(
+            (Project.title.ilike(f"%{search}%")) |
+            (Project.title_ru.ilike(f"%{search}%")) |
+            (Project.description.ilike(f"%{search}%")) |
+            (Project.description_ru.ilike(f"%{search}%"))
+        )
+
+    # Execute query with pagination
+    projects = query.order_by(Project.created_at.desc()).offset(skip).limit(limit).all()
+
+    return projects
+
+
+@router.post("/admin/create", status_code=status.HTTP_201_CREATED)
+def admin_create_project(
+    project_data: ProjectCreate,
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_permission(Module.PROJECTS, Permission.CREATE))
+):
+    """Admin: Create project with admin_id tracking"""
+    # Create project
+    new_project = Project(
+        title=project_data.title,
+        title_ru=project_data.title_ru,
+        description=project_data.description,
+        description_ru=project_data.description_ru,
+        author=project_data.author,
+        project_type=project_data.project_type,
+        status=project_data.status or "draft",
+        start_date=project_data.start_date,
+        end_date=project_data.end_date,
+        photo_url=project_data.photo_url,
+        video_url=project_data.video_url,
+        admin_id=current_admin.id  # Set owner
+    )
+
+    db.add(new_project)
+    db.commit()
+    db.refresh(new_project)
+
+    return new_project
+
+
+@router.put("/admin/{project_id}")
+def admin_update_project(
+    project_id: int,
+    project_data: ProjectUpdate,
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_permission(Module.PROJECTS, Permission.UPDATE))
+):
+    """Admin: Update project with ownership check"""
+    # Get existing project
+    query = db.query(Project).filter(Project.id == project_id)
+
+    # Apply owner filter for NPO/MSB
+    query = apply_owner_filter(query, Project, current_admin)
+
+    existing_project = query.first()
+    if not existing_project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Проект не найден или у вас нет прав на его редактирование"
+        )
+
+    # Update fields
+    if project_data.title is not None:
+        existing_project.title = project_data.title
+    if project_data.title_ru is not None:
+        existing_project.title_ru = project_data.title_ru
+    if project_data.description is not None:
+        existing_project.description = project_data.description
+    if project_data.description_ru is not None:
+        existing_project.description_ru = project_data.description_ru
+    if project_data.author is not None:
+        existing_project.author = project_data.author
+    if project_data.project_type is not None:
+        existing_project.project_type = project_data.project_type
+    if project_data.status is not None:
+        existing_project.status = project_data.status
+    if project_data.start_date is not None:
+        existing_project.start_date = project_data.start_date
+    if project_data.end_date is not None:
+        existing_project.end_date = project_data.end_date
+    if project_data.photo_url is not None:
+        existing_project.photo_url = project_data.photo_url
+    if project_data.video_url is not None:
+        existing_project.video_url = project_data.video_url
+
+    db.commit()
+    db.refresh(existing_project)
+
+    return existing_project
+
+
+@router.delete("/admin/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
+def admin_delete_project(
+    project_id: int,
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_permission(Module.PROJECTS, Permission.DELETE))
+):
+    """Admin: Delete project with ownership check"""
+    # Get existing project
+    query = db.query(Project).filter(Project.id == project_id)
+
+    # Apply owner filter for NPO/MSB
+    query = apply_owner_filter(query, Project, current_admin)
+
+    existing_project = query.first()
+    if not existing_project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Проект не найден или у вас нет прав на его удаление"
+        )
+
+    db.delete(existing_project)
+    db.commit()
+
+    return JSONResponse(status_code=status.HTTP_204_NO_CONTENT, content={})
+
+
+@router.get("/admin/{project_id}")
+def admin_get_project(
+    project_id: int,
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_module_access(Module.PROJECTS, allow_read_only=True))
+):
+    """Admin: Get project details with ownership check"""
+    query = db.query(Project).filter(Project.id == project_id)
+
+    # Apply owner filter for NPO/MSB
+    query = apply_owner_filter(query, Project, current_admin)
+
+    project = query.first()
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Проект не найден или у вас нет прав на его просмотр"
+        )
+
+    return project

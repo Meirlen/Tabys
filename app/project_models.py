@@ -40,8 +40,8 @@ class Project(Base):
     photo_url = Column(String(500), nullable=True)  # Основное фото
     video_url = Column(String(500), nullable=True)  # YouTube ссылка
 
-    # Создатель проекта (если нужна связь с пользователем)
-    creator_id = Column(Integer, nullable=True)
+    # Owner tracking for RBAC
+    admin_id = Column(Integer, ForeignKey('adminstrators_shaqyru1.id'), nullable=True, index=True)  # ID of admin who created this project
 
 
 # Фотогалерея проекта
