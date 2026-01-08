@@ -8,6 +8,7 @@ from app.v_models import *
 from app.v_schemas import *
 from datetime import datetime
 from typing import Optional
+from app.rbac import Module, Permission, require_permission, require_module_access
 
 router = APIRouter(prefix="/api/v2/admin/volunteer", tags=["Volunteer Admin"])
 
@@ -23,6 +24,7 @@ def verify_admin(current_admin: models.Admin = Depends(oauth2.get_current_admin)
 def create_event(
         event: EventCreate,
         db: Session = Depends(get_db),
+        current_admin: models.Admin = Depends(require_permission(Module.VOLUNTEERS, Permission.CREATE))
 ):
     """Создание мероприятия"""
     new_event = VolunteerEvent(**event.dict())
@@ -37,6 +39,7 @@ def update_event(
         event_id: int,
         event_data: EventCreate,
         db: Session = Depends(get_db),
+        current_admin: models.Admin = Depends(require_permission(Module.VOLUNTEERS, Permission.UPDATE))
 ):
     """Обновление мероприятия"""
     event = db.query(VolunteerEvent).filter(VolunteerEvent.id == event_id).first()
@@ -55,6 +58,7 @@ def update_event(
 def delete_event(
         event_id: int,
         db: Session = Depends(get_db),
+        current_admin: models.Admin = Depends(require_permission(Module.VOLUNTEERS, Permission.DELETE))
 ):
     """Удаление мероприятия"""
     event = db.query(VolunteerEvent).filter(VolunteerEvent.id == event_id).first()
@@ -73,6 +77,7 @@ def get_event_applications(
         event_id: int,
         status_filter: Optional[str] = None,
         db: Session = Depends(get_db),
+        current_admin: models.Admin = Depends(require_module_access(Module.VOLUNTEERS, allow_read_only=True))
 ):
     """Все заявки на мероприятие"""
     query = db.query(EventApplication).filter(EventApplication.event_id == event_id)
@@ -106,6 +111,7 @@ def get_event_applications(
 def approve_application(
         application_id: int,
         db: Session = Depends(get_db),
+        current_admin: models.Admin = Depends(require_permission(Module.VOLUNTEERS, Permission.UPDATE))
 ):
     """Одобрить заявку"""
     app = db.query(EventApplication).filter(EventApplication.id == application_id).first()
@@ -122,6 +128,7 @@ def reject_application(
         application_id: int,
         reason: str = None,  # Добавь параметр для причины
         db: Session = Depends(get_db),
+        current_admin: models.Admin = Depends(require_permission(Module.VOLUNTEERS, Permission.UPDATE))
 ):
     """Отклонить заявку"""
     app = db.query(EventApplication).filter(EventApplication.id == application_id).first()
@@ -141,6 +148,7 @@ def mark_attendance(
         application_id: int,
         attended: bool,
         db: Session = Depends(get_db),
+        current_admin: models.Admin = Depends(require_permission(Module.VOLUNTEERS, Permission.UPDATE))
 ):
     """Отметить присутствие/отсутствие"""
     app = db.query(EventApplication).filter(EventApplication.id == application_id).first()
@@ -209,6 +217,7 @@ def create_event_task(
         event_id: int,
         task: TaskCreate,  # ← ИСПРАВЛЕНО: принимаем объект
         db: Session = Depends(get_db),
+        current_admin: models.Admin = Depends(require_permission(Module.VOLUNTEERS, Permission.CREATE))
 ):
     """Создать задачу для мероприятия"""
 
@@ -264,6 +273,7 @@ class BenefitCreate(BaseModel):
 def create_benefit(
         benefit: BenefitCreate,  # ← ИСПРАВЛЕНО: из body
         db: Session = Depends(get_db),
+        current_admin: models.Admin = Depends(require_permission(Module.VOLUNTEERS, Permission.CREATE))
 ):
     """Создать плюшку"""
     new_benefit = Benefit(
@@ -300,6 +310,7 @@ def get_all_benefits(
         skip: int = 0,
         limit: int = 100,
         db: Session = Depends(get_db),
+        current_admin: models.Admin = Depends(require_module_access(Module.VOLUNTEERS, allow_read_only=True))
 ):
     """Получить все плюшки (для админа)"""
     benefits = db.query(Benefit).order_by(desc(Benefit.created_at)).offset(skip).limit(limit).all()
@@ -332,6 +343,7 @@ def update_benefit(
         benefit_id: int,
         benefit_data: BenefitCreate,  # ← Используем ту же схему
         db: Session = Depends(get_db),
+        current_admin: models.Admin = Depends(require_permission(Module.VOLUNTEERS, Permission.UPDATE))
 ):
     """Обновить плюшку"""
     benefit = db.query(Benefit).filter(Benefit.id == benefit_id).first()
@@ -374,6 +386,7 @@ def update_benefit(
 def delete_benefit(
         benefit_id: int,
         db: Session = Depends(get_db),
+        current_admin: models.Admin = Depends(require_permission(Module.VOLUNTEERS, Permission.DELETE))
 ):
     """Удалить (деактивировать) плюшку"""
     benefit = db.query(Benefit).filter(Benefit.id == benefit_id).first()
@@ -396,6 +409,7 @@ def get_all_purchases(
         skip: int = 0,
         limit: int = 50,
         db: Session = Depends(get_db),
+        current_admin: models.Admin = Depends(require_module_access(Module.VOLUNTEERS, allow_read_only=True))
 ):
     """Все покупки плюшек"""
     query = db.query(BenefitPurchase)
@@ -432,6 +446,7 @@ def complete_purchase(
         purchase_id: int,
         admin_notes: str = None,
         db: Session = Depends(get_db),
+        current_admin: models.Admin = Depends(require_permission(Module.VOLUNTEERS, Permission.UPDATE))
 ):
     """Завершить покупку"""
     purchase = db.query(BenefitPurchase).filter(BenefitPurchase.id == purchase_id).first()
@@ -452,7 +467,7 @@ def complete_purchase(
 def get_promotion_requests(
         status_filter: Optional[str] = None,
         db: Session = Depends(get_db),
-        current_admin: models.Admin = Depends(verify_admin)
+        current_admin: models.Admin = Depends(require_module_access(Module.VOLUNTEERS, allow_read_only=True))
 ):
     """Все запросы на повышение"""
     query = db.query(PromotionRequest)
@@ -496,7 +511,7 @@ def approve_promotion(
         request_id: int,
         request_data: dict,
         db: Session = Depends(get_db),
-        current_admin: models.Admin = Depends(verify_admin)
+        current_admin: models.Admin = Depends(require_permission(Module.VOLUNTEERS, Permission.UPDATE))
 ):
     """Одобрить повышение"""
     req = db.query(PromotionRequest).filter(PromotionRequest.id == request_id).first()
@@ -529,7 +544,7 @@ def reject_promotion(
         request_id: int,
         request_data: dict,
         db: Session = Depends(get_db),
-        current_admin: models.Admin = Depends(verify_admin)
+        current_admin: models.Admin = Depends(require_permission(Module.VOLUNTEERS, Permission.UPDATE))
 ):
     """Отклонить повышение"""
     req = db.query(PromotionRequest).filter(PromotionRequest.id == request_id).first()
@@ -555,6 +570,7 @@ def reject_promotion(
 @router.get("/stats/overview")
 def get_volunteer_stats(
         db: Session = Depends(get_db),
+        current_admin: models.Admin = Depends(require_module_access(Module.VOLUNTEERS, allow_read_only=True))
 ):
     """Общая статистика волонтеров"""
     total_volunteers = db.query(func.count(Volunteer.id)).scalar()
@@ -594,6 +610,7 @@ def get_all_volunteers(
         skip: int = 0,
         limit: int = 100,
         db: Session = Depends(get_db),
+        current_admin: models.Admin = Depends(require_module_access(Module.VOLUNTEERS, allow_read_only=True))
 ):
     """Получить список всех волонтёров"""
     query = db.query(Volunteer)
@@ -649,6 +666,7 @@ def get_all_applications(
         skip: int = 0,
         limit: int = 100,
         db: Session = Depends(get_db),
+        current_admin: models.Admin = Depends(require_module_access(Module.VOLUNTEERS, allow_read_only=True))
 ):
     """Получить все заявки с фильтрами"""
     query = db.query(EventApplication)
@@ -690,6 +708,7 @@ def update_volunteer(
         volunteer_status: Optional[str] = None,
         v_coins_balance: Optional[int] = None,
         db: Session = Depends(get_db),
+        current_admin: models.Admin = Depends(require_permission(Module.VOLUNTEERS, Permission.UPDATE))
 ):
     """Обновить данные волонтёра"""
     volunteer = db.query(Volunteer).filter(Volunteer.id == volunteer_id).first()
@@ -732,6 +751,7 @@ def manage_volunteer_coins(
         reason: str,
         type: str,  # 'add' или 'deduct'
         db: Session = Depends(get_db),
+        current_admin: models.Admin = Depends(require_permission(Module.VOLUNTEERS, Permission.UPDATE))
 ):
     """Начислить или списать V-coins волонтёру"""
     volunteer = db.query(Volunteer).filter(Volunteer.id == volunteer_id).first()
@@ -784,6 +804,7 @@ def get_all_task_reports(
         skip: int = 0,
         limit: int = 100,
         db: Session = Depends(get_db),
+        current_admin: models.Admin = Depends(require_module_access(Module.VOLUNTEERS, allow_read_only=True))
 ):
     """Все отчёты по задачам"""
     query = db.query(TaskCompletion).filter(
@@ -839,6 +860,7 @@ def approve_task_report(
         completion_id: int,
         request: ApproveReportRequest,  # ← ИСПРАВЛЕНО: из body
         db: Session = Depends(get_db),
+        current_admin: models.Admin = Depends(require_permission(Module.VOLUNTEERS, Permission.UPDATE))
 ):
     """Одобрить отчёт по задаче"""
     completion = db.query(TaskCompletion).filter(TaskCompletion.id == completion_id).first()
@@ -895,6 +917,7 @@ def reject_task_report(
         completion_id: int,
         request: RejectReportRequest,  # ← ИСПРАВЛЕНО: из body
         db: Session = Depends(get_db),
+        current_admin: models.Admin = Depends(require_permission(Module.VOLUNTEERS, Permission.UPDATE))
 ):
     """Отклонить отчёт по задаче"""
     completion = db.query(TaskCompletion).filter(TaskCompletion.id == completion_id).first()
@@ -922,6 +945,7 @@ def reject_task_report(
 def approve_purchase(
         purchase_id: int,
         db: Session = Depends(get_db),
+        current_admin: models.Admin = Depends(require_permission(Module.VOLUNTEERS, Permission.UPDATE))
 ):
     """Одобрить покупку"""
     purchase = db.query(BenefitPurchase).filter(BenefitPurchase.id == purchase_id).first()
@@ -942,6 +966,7 @@ def complete_purchase(
         purchase_id: int,
         admin_notes: Optional[str] = None,
         db: Session = Depends(get_db),
+        current_admin: models.Admin = Depends(require_permission(Module.VOLUNTEERS, Permission.UPDATE))
 ):
     """Завершить покупку (плюшка выдана)"""
     purchase = db.query(BenefitPurchase).filter(BenefitPurchase.id == purchase_id).first()
@@ -970,6 +995,7 @@ def cancel_purchase(
         purchase_id: int,
         request: CancelPurchaseRequest,
         db: Session = Depends(get_db),
+        current_admin: models.Admin = Depends(require_permission(Module.VOLUNTEERS, Permission.UPDATE))
 ):
     """Отменить покупку и вернуть V-coins"""
     purchase = db.query(BenefitPurchase).filter(BenefitPurchase.id == purchase_id).first()
@@ -1022,6 +1048,7 @@ def cancel_purchase(
 @router.get("/status-requirements")
 def get_status_requirements(
         db: Session = Depends(get_db),
+        current_admin: models.Admin = Depends(require_module_access(Module.VOLUNTEERS, allow_read_only=True))
 ):
     """
     Получить все требования для статусов
@@ -1098,6 +1125,7 @@ def update_status_requirement(
         status: str,  # VOLUNTEER, TEAM_LEADER, SUPERVISOR, COORDINATOR
         data: StatusRequirementUpdate,
         db: Session = Depends(get_db),
+        current_admin: models.Admin = Depends(require_permission(Module.VOLUNTEERS, Permission.UPDATE))
 ):
     """
     Обновить требования для статуса
@@ -1147,6 +1175,7 @@ def update_status_requirement(
 @router.post("/status-requirements/reset-defaults")
 def reset_status_requirements(
         db: Session = Depends(get_db),
+        current_admin: models.Admin = Depends(require_permission(Module.VOLUNTEERS, Permission.UPDATE))
 ):
     """
     Сбросить требования к дефолтным значениям

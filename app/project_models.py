@@ -43,6 +43,13 @@ class Project(Base):
     # Owner tracking for RBAC
     admin_id = Column(Integer, ForeignKey('adminstrators_shaqyru1.id'), nullable=True, index=True)  # ID of admin who created this project
 
+    # Moderation fields
+    moderation_status = Column(String(20), default='pending', nullable=False, index=True)  # 'pending', 'approved', 'rejected'
+    moderated_at = Column(DateTime, nullable=True)  # Timestamp when moderation action was taken
+    moderated_by = Column(Integer, nullable=True)  # Admin ID who performed moderation
+    moderation_comment = Column(Text, nullable=True)  # Optional comment/reason for rejection
+    is_admin_created = Column(Boolean, default=False, nullable=False)  # True if created by administrator/super_admin
+
 
 # Фотогалерея проекта
 class ProjectGallery(Base):

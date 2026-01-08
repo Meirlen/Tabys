@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, Numeric, ForeignKey
+from sqlalchemy import Column, Integer, String, Text, DateTime, Numeric, ForeignKey, Boolean
 from sqlalchemy.sql import func
 from app.database import Base
 
@@ -45,6 +45,13 @@ class Ticket(Base):
 
     # Owner tracking for RBAC
     admin_id = Column(Integer, nullable=True, index=True)  # ID of admin who created this ticket
+
+    # Moderation fields
+    moderation_status = Column(String(20), default='pending', nullable=False, index=True)  # 'pending', 'approved', 'rejected'
+    moderated_at = Column(DateTime, nullable=True)  # Timestamp when moderation action was taken
+    moderated_by = Column(Integer, nullable=True)  # Admin ID who performed moderation
+    moderation_comment = Column(Text, nullable=True)  # Optional comment/reason for rejection
+    is_admin_created = Column(Boolean, default=False, nullable=False)  # True if created by administrator/super_admin
 
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
@@ -99,6 +106,13 @@ class Place(Base):
     # Owner tracking for RBAC
     admin_id = Column(Integer, nullable=True, index=True)  # ID of admin who created this place
 
+    # Moderation fields
+    moderation_status = Column(String(20), default='pending', nullable=False, index=True)  # 'pending', 'approved', 'rejected'
+    moderated_at = Column(DateTime, nullable=True)  # Timestamp when moderation action was taken
+    moderated_by = Column(Integer, nullable=True)  # Admin ID who performed moderation
+    moderation_comment = Column(Text, nullable=True)  # Optional comment/reason for rejection
+    is_admin_created = Column(Boolean, default=False, nullable=False)  # True if created by administrator/super_admin
+
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
 
@@ -147,6 +161,13 @@ class PromoAction(Base):
 
     # Owner tracking for RBAC
     admin_id = Column(Integer, nullable=True, index=True)  # ID of admin who created this promo
+
+    # Moderation fields
+    moderation_status = Column(String(20), default='pending', nullable=False, index=True)  # 'pending', 'approved', 'rejected'
+    moderated_at = Column(DateTime, nullable=True)  # Timestamp when moderation action was taken
+    moderated_by = Column(Integer, nullable=True)  # Admin ID who performed moderation
+    moderation_comment = Column(Text, nullable=True)  # Optional comment/reason for rejection
+    is_admin_created = Column(Boolean, default=False, nullable=False)  # True if created by administrator/super_admin
 
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())

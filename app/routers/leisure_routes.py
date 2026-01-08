@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Query, Response
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, func, or_
 from app.database import get_db
@@ -6,6 +6,10 @@ from app.leisure_models import (
     LeisureCategory, Ticket, TicketGallery,
     Place, PlaceGallery, PromoAction
 )
+from app.schemas import ModerationStats, ModerationStatus
+from app.oauth2 import get_current_admin
+from app.rbac import Module, Permission, require_module_access, require_permission, apply_owner_filter
+from app import models
 from typing import List, Optional
 import os
 import uuid
@@ -1087,11 +1091,6 @@ def get_leisure_stats(db: Session = Depends(get_db)):
 
 # ========== ADMIN ENDPOINTS WITH RBAC FOR PLACES ==========
 
-from app.oauth2 import get_current_admin
-from app.rbac import Module, Permission, require_module_access, require_permission, apply_owner_filter
-from app import models
-
-
 @router.get("/admin/places/list")
 def admin_list_places(
     skip: int = 0,
@@ -1129,8 +1128,19 @@ def admin_create_place(
     db: Session = Depends(get_db),
     current_admin: models.Admin = Depends(require_permission(Module.LEISURE, Permission.CREATE))
 ):
-    """Admin: Create place with admin_id tracking"""
-    new_place = Place(**place_data, admin_id=current_admin.id)
+    """Admin: Create place with auto-approval for administrators/super_admins"""
+    # Determine moderation status based on admin role
+    is_admin_created = current_admin.role in ['administrator', 'super_admin']
+    moderation_status = 'approved' if is_admin_created else 'pending'
+
+    new_place = Place(
+        **place_data,
+        admin_id=current_admin.id,
+        moderation_status=moderation_status,
+        is_admin_created=is_admin_created,
+        moderated_at=datetime.utcnow() if is_admin_created else None,
+        moderated_by=current_admin.id if is_admin_created else None
+    )
     db.add(new_place)
     db.commit()
     db.refresh(new_place)
@@ -1144,13 +1154,29 @@ def admin_update_place(
     db: Session = Depends(get_db),
     current_admin: models.Admin = Depends(require_permission(Module.LEISURE, Permission.UPDATE))
 ):
-    """Admin: Update place with ownership check"""
+    """Admin: Update place with ownership check and re-moderation logic"""
     query = db.query(Place).filter(Place.id == place_id)
     query = apply_owner_filter(query, Place, current_admin)
 
     place = query.first()
     if not place:
         raise HTTPException(status_code=404, detail="Место не найдено или у вас нет прав на его редактирование")
+
+    # Define major fields that trigger re-moderation
+    major_fields = ['title', 'title_ru', 'description', 'description_ru', 'price', 'main_photo_url']
+    major_update = any(field in place_data for field in major_fields)
+
+    # Check if admin bypasses moderation
+    is_admin = current_admin.role in ['administrator', 'super_admin']
+
+    # Apply re-moderation logic
+    if major_update and not is_admin and place.moderation_status == 'approved':
+        place.moderation_status = 'pending'
+        place.moderated_at = None
+        place.moderated_by = None
+    elif major_update and is_admin:
+        place.moderated_at = datetime.utcnow()
+        place.moderated_by = current_admin.id
 
     for key, value in place_data.items():
         setattr(place, key, value)
@@ -1215,8 +1241,19 @@ def admin_create_ticket(
     db: Session = Depends(get_db),
     current_admin: models.Admin = Depends(require_permission(Module.LEISURE, Permission.CREATE))
 ):
-    """Admin: Create ticket with admin_id tracking"""
-    new_ticket = Ticket(**ticket_data, admin_id=current_admin.id)
+    """Admin: Create ticket with auto-approval for administrators/super_admins"""
+    # Determine moderation status based on admin role
+    is_admin_created = current_admin.role in ['administrator', 'super_admin']
+    moderation_status = 'approved' if is_admin_created else 'pending'
+
+    new_ticket = Ticket(
+        **ticket_data,
+        admin_id=current_admin.id,
+        moderation_status=moderation_status,
+        is_admin_created=is_admin_created,
+        moderated_at=datetime.utcnow() if is_admin_created else None,
+        moderated_by=current_admin.id if is_admin_created else None
+    )
     db.add(new_ticket)
     db.commit()
     db.refresh(new_ticket)
@@ -1230,13 +1267,29 @@ def admin_update_ticket(
     db: Session = Depends(get_db),
     current_admin: models.Admin = Depends(require_permission(Module.LEISURE, Permission.UPDATE))
 ):
-    """Admin: Update ticket with ownership check"""
+    """Admin: Update ticket with ownership check and re-moderation logic"""
     query = db.query(Ticket).filter(Ticket.id == ticket_id)
     query = apply_owner_filter(query, Ticket, current_admin)
 
     ticket = query.first()
     if not ticket:
         raise HTTPException(status_code=404, detail="Билет не найден или у вас нет прав на его редактирование")
+
+    # Define major fields that trigger re-moderation
+    major_fields = ['title', 'title_ru', 'description', 'description_ru', 'event_date', 'price']
+    major_update = any(field in ticket_data for field in major_fields)
+
+    # Check if admin bypasses moderation
+    is_admin = current_admin.role in ['administrator', 'super_admin']
+
+    # Apply re-moderation logic
+    if major_update and not is_admin and ticket.moderation_status == 'approved':
+        ticket.moderation_status = 'pending'
+        ticket.moderated_at = None
+        ticket.moderated_by = None
+    elif major_update and is_admin:
+        ticket.moderated_at = datetime.utcnow()
+        ticket.moderated_by = current_admin.id
 
     for key, value in ticket_data.items():
         setattr(ticket, key, value)
@@ -1298,8 +1351,19 @@ def admin_create_promo(
     db: Session = Depends(get_db),
     current_admin: models.Admin = Depends(require_permission(Module.LEISURE, Permission.CREATE))
 ):
-    """Admin: Create promo action with admin_id tracking"""
-    new_promo = PromoAction(**promo_data, admin_id=current_admin.id)
+    """Admin: Create promo action with auto-approval for administrators/super_admins"""
+    # Determine moderation status based on admin role
+    is_admin_created = current_admin.role in ['administrator', 'super_admin']
+    moderation_status = 'approved' if is_admin_created else 'pending'
+
+    new_promo = PromoAction(
+        **promo_data,
+        admin_id=current_admin.id,
+        moderation_status=moderation_status,
+        is_admin_created=is_admin_created,
+        moderated_at=datetime.utcnow() if is_admin_created else None,
+        moderated_by=current_admin.id if is_admin_created else None
+    )
     db.add(new_promo)
     db.commit()
     db.refresh(new_promo)
@@ -1313,13 +1377,29 @@ def admin_update_promo(
     db: Session = Depends(get_db),
     current_admin: models.Admin = Depends(require_permission(Module.LEISURE, Permission.UPDATE))
 ):
-    """Admin: Update promo action with ownership check"""
+    """Admin: Update promo action with ownership check and re-moderation logic"""
     query = db.query(PromoAction).filter(PromoAction.id == promo_id)
     query = apply_owner_filter(query, PromoAction, current_admin)
 
     promo = query.first()
     if not promo:
         raise HTTPException(status_code=404, detail="Промо-акция не найдена или у вас нет прав на её редактирование")
+
+    # Define major fields that trigger re-moderation
+    major_fields = ['title', 'title_ru', 'description', 'description_ru', 'discount_text', 'promo_code']
+    major_update = any(field in promo_data for field in major_fields)
+
+    # Check if admin bypasses moderation
+    is_admin = current_admin.role in ['administrator', 'super_admin']
+
+    # Apply re-moderation logic
+    if major_update and not is_admin and promo.moderation_status == 'approved':
+        promo.moderation_status = 'pending'
+        promo.moderated_at = None
+        promo.moderated_by = None
+    elif major_update and is_admin:
+        promo.moderated_at = datetime.utcnow()
+        promo.moderated_by = current_admin.id
 
     for key, value in promo_data.items():
         setattr(promo, key, value)
@@ -1346,3 +1426,282 @@ def admin_delete_promo(
     db.delete(promo)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# ========== MODERATION ENDPOINTS FOR PLACES ==========
+
+@router.get("/admin/places/moderation/stats", response_model=ModerationStats)
+def get_places_moderation_stats(
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_module_access(Module.LEISURE, allow_read_only=True))
+):
+    """Get place moderation statistics"""
+    total = db.query(Place).count()
+    pending = db.query(Place).filter(Place.moderation_status == 'pending').count()
+    approved = db.query(Place).filter(Place.moderation_status == 'approved').count()
+    rejected = db.query(Place).filter(Place.moderation_status == 'rejected').count()
+
+    return {
+        "total": total,
+        "pending": pending,
+        "approved": approved,
+        "rejected": rejected
+    }
+
+
+@router.get("/admin/places/moderation/pending")
+def get_pending_places(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_module_access(Module.LEISURE, allow_read_only=True))
+):
+    """Get all pending places awaiting moderation"""
+    places = db.query(Place).filter(
+        Place.moderation_status == 'pending'
+    ).offset(skip).limit(limit).all()
+    return places
+
+
+@router.get("/admin/places/moderation/all-statuses")
+def get_all_places_with_status(
+    moderation_status: Optional[ModerationStatus] = Query(None),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_module_access(Module.LEISURE, allow_read_only=True))
+):
+    """Get all places with optional status filter"""
+    query = db.query(Place)
+
+    if moderation_status:
+        query = query.filter(Place.moderation_status == moderation_status.value)
+
+    places = query.offset(skip).limit(limit).all()
+    return places
+
+
+@router.post("/admin/places/moderation/{place_id}/approve")
+def approve_place(
+    place_id: int,
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_permission(Module.LEISURE, Permission.UPDATE))
+):
+    """Approve a place"""
+    place = db.query(Place).filter(Place.id == place_id).first()
+    if not place:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Place not found")
+
+    place.moderation_status = 'approved'
+    place.moderated_at = datetime.utcnow()
+    place.moderated_by = current_admin.id
+
+    db.commit()
+    db.refresh(place)
+    return place
+
+
+@router.post("/admin/places/moderation/{place_id}/reject")
+def reject_place(
+    place_id: int,
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_permission(Module.LEISURE, Permission.UPDATE))
+):
+    """Reject a place"""
+    place = db.query(Place).filter(Place.id == place_id).first()
+    if not place:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Place not found")
+
+    place.moderation_status = 'rejected'
+    place.moderated_at = datetime.utcnow()
+    place.moderated_by = current_admin.id
+
+    db.commit()
+    db.refresh(place)
+    return place
+
+
+# ========== MODERATION ENDPOINTS FOR TICKETS ==========
+
+@router.get("/admin/tickets/moderation/stats", response_model=ModerationStats)
+def get_tickets_moderation_stats(
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_module_access(Module.LEISURE, allow_read_only=True))
+):
+    """Get ticket moderation statistics"""
+    total = db.query(Ticket).count()
+    pending = db.query(Ticket).filter(Ticket.moderation_status == 'pending').count()
+    approved = db.query(Ticket).filter(Ticket.moderation_status == 'approved').count()
+    rejected = db.query(Ticket).filter(Ticket.moderation_status == 'rejected').count()
+
+    return {
+        "total": total,
+        "pending": pending,
+        "approved": approved,
+        "rejected": rejected
+    }
+
+
+@router.get("/admin/tickets/moderation/pending")
+def get_pending_tickets(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_module_access(Module.LEISURE, allow_read_only=True))
+):
+    """Get all pending tickets awaiting moderation"""
+    tickets = db.query(Ticket).filter(
+        Ticket.moderation_status == 'pending'
+    ).offset(skip).limit(limit).all()
+    return tickets
+
+
+@router.get("/admin/tickets/moderation/all-statuses")
+def get_all_tickets_with_status(
+    moderation_status: Optional[ModerationStatus] = Query(None),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_module_access(Module.LEISURE, allow_read_only=True))
+):
+    """Get all tickets with optional status filter"""
+    query = db.query(Ticket)
+
+    if moderation_status:
+        query = query.filter(Ticket.moderation_status == moderation_status.value)
+
+    tickets = query.offset(skip).limit(limit).all()
+    return tickets
+
+
+@router.post("/admin/tickets/moderation/{ticket_id}/approve")
+def approve_ticket(
+    ticket_id: int,
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_permission(Module.LEISURE, Permission.UPDATE))
+):
+    """Approve a ticket"""
+    ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
+    if not ticket:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ticket not found")
+
+    ticket.moderation_status = 'approved'
+    ticket.moderated_at = datetime.utcnow()
+    ticket.moderated_by = current_admin.id
+
+    db.commit()
+    db.refresh(ticket)
+    return ticket
+
+
+@router.post("/admin/tickets/moderation/{ticket_id}/reject")
+def reject_ticket(
+    ticket_id: int,
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_permission(Module.LEISURE, Permission.UPDATE))
+):
+    """Reject a ticket"""
+    ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
+    if not ticket:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ticket not found")
+
+    ticket.moderation_status = 'rejected'
+    ticket.moderated_at = datetime.utcnow()
+    ticket.moderated_by = current_admin.id
+
+    db.commit()
+    db.refresh(ticket)
+    return ticket
+
+
+# ========== MODERATION ENDPOINTS FOR PROMO ACTIONS ==========
+
+@router.get("/admin/promo/moderation/stats", response_model=ModerationStats)
+def get_promo_moderation_stats(
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_module_access(Module.LEISURE, allow_read_only=True))
+):
+    """Get promo action moderation statistics"""
+    total = db.query(PromoAction).count()
+    pending = db.query(PromoAction).filter(PromoAction.moderation_status == 'pending').count()
+    approved = db.query(PromoAction).filter(PromoAction.moderation_status == 'approved').count()
+    rejected = db.query(PromoAction).filter(PromoAction.moderation_status == 'rejected').count()
+
+    return {
+        "total": total,
+        "pending": pending,
+        "approved": approved,
+        "rejected": rejected
+    }
+
+
+@router.get("/admin/promo/moderation/pending")
+def get_pending_promo(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_module_access(Module.LEISURE, allow_read_only=True))
+):
+    """Get all pending promo actions awaiting moderation"""
+    promos = db.query(PromoAction).filter(
+        PromoAction.moderation_status == 'pending'
+    ).offset(skip).limit(limit).all()
+    return promos
+
+
+@router.get("/admin/promo/moderation/all-statuses")
+def get_all_promo_with_status(
+    moderation_status: Optional[ModerationStatus] = Query(None),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_module_access(Module.LEISURE, allow_read_only=True))
+):
+    """Get all promo actions with optional status filter"""
+    query = db.query(PromoAction)
+
+    if moderation_status:
+        query = query.filter(PromoAction.moderation_status == moderation_status.value)
+
+    promos = query.offset(skip).limit(limit).all()
+    return promos
+
+
+@router.post("/admin/promo/moderation/{promo_id}/approve")
+def approve_promo(
+    promo_id: int,
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_permission(Module.LEISURE, Permission.UPDATE))
+):
+    """Approve a promo action"""
+    promo = db.query(PromoAction).filter(PromoAction.id == promo_id).first()
+    if not promo:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Promo action not found")
+
+    promo.moderation_status = 'approved'
+    promo.moderated_at = datetime.utcnow()
+    promo.moderated_by = current_admin.id
+
+    db.commit()
+    db.refresh(promo)
+    return promo
+
+
+@router.post("/admin/promo/moderation/{promo_id}/reject")
+def reject_promo(
+    promo_id: int,
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_permission(Module.LEISURE, Permission.UPDATE))
+):
+    """Reject a promo action"""
+    promo = db.query(PromoAction).filter(PromoAction.id == promo_id).first()
+    if not promo:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Promo action not found")
+
+    promo.moderation_status = 'rejected'
+    promo.moderated_at = datetime.utcnow()
+    promo.moderated_by = current_admin.id
+
+    db.commit()
+    db.refresh(promo)
+    return promo

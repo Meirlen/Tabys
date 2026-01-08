@@ -130,6 +130,13 @@ class Vacancy(Base):
     created_at = Column(DateTime, nullable=False)
     updated_at = Column(DateTime, nullable=True)
 
+    # Moderation fields
+    moderation_status = Column(String(20), default='pending', nullable=False, index=True)  # 'pending', 'approved', 'rejected'
+    moderated_at = Column(DateTime, nullable=True)  # Timestamp when moderation action was taken
+    moderated_by = Column(Integer, nullable=True)  # Admin ID who performed moderation
+    moderation_comment = Column(Text, nullable=True)  # Optional comment/reason for rejection
+    is_admin_created = Column(Boolean, default=False, nullable=False)  # True if created by administrator/super_admin
+
 
 class VacancyApplication(Base):
     __tablename__ = "vacancy_applications_v2"
@@ -164,6 +171,13 @@ class Event(Base):
     admin_id = Column(Integer, ForeignKey('adminstrators_shaqyru1.id'), nullable=True, index=True)  # Owner tracking for RBAC
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Moderation fields
+    moderation_status = Column(String(20), default='pending', nullable=False, index=True)  # 'pending', 'approved', 'rejected'
+    moderated_at = Column(DateTime, nullable=True)  # Timestamp when moderation action was taken
+    moderated_by = Column(Integer, nullable=True)  # Admin ID who performed moderation
+    moderation_comment = Column(Text, nullable=True)  # Optional comment/reason for rejection
+    is_admin_created = Column(Boolean, default=False, nullable=False)  # True if created by administrator/super_admin
 
     # Relationships
     programs = relationship("EventProgram", back_populates="event", cascade="all, delete-orphan")
@@ -265,7 +279,7 @@ class Course(Base):
     views_count = Column(Integer, default=0)
     rating = Column(Float, default=0.0)
 
-    # Статус модерации
+    # Статус модерации (legacy - keeping for backward compatibility)
     status = Column(Enum("pending", "approved", "rejected", name="course_status"), default="pending")
     status_comment = Column(Text, nullable=True)
 
@@ -276,6 +290,13 @@ class Course(Base):
     # Время создания и обновления
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Moderation fields (new unified system)
+    moderation_status = Column(String(20), default='pending', nullable=False, index=True)  # 'pending', 'approved', 'rejected'
+    moderated_at = Column(DateTime, nullable=True)  # Timestamp when moderation action was taken
+    moderated_by = Column(Integer, nullable=True)  # Admin ID who performed moderation
+    moderation_comment = Column(Text, nullable=True)  # Optional comment/reason for rejection
+    is_admin_created = Column(Boolean, default=False, nullable=False)  # True if created by administrator/super_admin
 
     # Связи
     # Удаляем проблемную связь с User

@@ -26,6 +26,21 @@ class OrganizationTypeEnum(str, Enum):
     EDUCATIONAL = "educational"
     NON_PROFIT = "non_profit"
 
+class ModerationStatus(str, Enum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+class ModerationAction(BaseModel):
+    moderation_status: ModerationStatus
+    moderation_comment: Optional[str] = None
+
+class ModerationStats(BaseModel):
+    total: int
+    pending: int
+    approved: int
+    rejected: int
+
 class TextMessageData(BaseModel):
     textMessage:str
 
@@ -621,6 +636,13 @@ class VacancyDetail(BaseModel):
     created_at: datetime
     updated_at: Optional[datetime] = None
 
+    # Moderation fields
+    moderation_status: str = "approved"
+    moderated_at: Optional[datetime] = None
+    moderated_by: Optional[int] = None
+    moderation_comment: Optional[str] = None
+    is_admin_created: bool = False
+
     class Config:
         from_attributes = True
 
@@ -785,6 +807,13 @@ class EventDetail(EventBase):
     speakers: List[EventSpeaker] = []
     created_at: datetime
     updated_at: datetime
+
+    # Moderation fields
+    moderation_status: str = "approved"
+    moderated_at: Optional[datetime] = None
+    moderated_by: Optional[int] = None
+    moderation_comment: Optional[str] = None
+    is_admin_created: bool = False
 
     class Config:
         orm_mode = True
@@ -1043,6 +1072,13 @@ class CourseDetail(CourseList):
     author_id: int
     updated_at: datetime
     chapters: List[CourseChapter]
+
+    # Moderation fields
+    moderation_status: str = "approved"
+    moderated_at: Optional[datetime] = None
+    moderated_by: Optional[int] = None
+    moderation_comment: Optional[str] = None
+    is_admin_created: bool = False
 
     class Config:
         orm_mode = True

@@ -402,8 +402,19 @@ def get_vacancy(db: Session, vacancy_id: int, include_inactive: bool = False):
     return result
 
 
-def create_vacancy(db: Session, vacancy: VacancyCreate):
-    """Создание вакансии"""
+def create_vacancy(db: Session, vacancy: VacancyCreate, admin_id: Optional[int] = None, admin_role: Optional[str] = None):
+    """Создание вакансии с авто-модерацией
+
+    Args:
+        db: Database session
+        vacancy: Vacancy data
+        admin_id: ID of admin creating the vacancy
+        admin_role: Role of admin (administrator, super_admin auto-approve)
+    """
+    # Determine moderation status based on admin role
+    is_admin_created = admin_role in ['administrator', 'super_admin'] if admin_role else False
+    moderation_status = 'approved' if is_admin_created else 'pending'
+
     db_vacancy = Vacancy(
         profession_id=vacancy.profession_id,
         city_id=vacancy.city_id,
@@ -421,7 +432,12 @@ def create_vacancy(db: Session, vacancy: VacancyCreate):
         company_name=vacancy.company_name,
         deadline=vacancy.deadline,
         created_at=datetime.utcnow(),
-        updated_at=datetime.utcnow()
+        updated_at=datetime.utcnow(),
+        admin_id=admin_id,
+        moderation_status=moderation_status,
+        is_admin_created=is_admin_created,
+        moderated_at=datetime.utcnow() if is_admin_created else None,
+        moderated_by=admin_id if is_admin_created else None
     )
 
     db.add(db_vacancy)
@@ -443,14 +459,40 @@ def create_vacancy(db: Session, vacancy: VacancyCreate):
     return get_vacancy(db, db_vacancy.id)
 
 
-def update_vacancy(db: Session, vacancy_id: int, vacancy_update: VacancyUpdate):
-    """Обновление вакансии"""
+def update_vacancy(db: Session, vacancy_id: int, vacancy_update: VacancyUpdate, admin_id: Optional[int] = None, admin_role: Optional[str] = None):
+    """Обновление вакансии с повторной модерацией
+
+    Args:
+        db: Database session
+        vacancy_id: Vacancy ID to update
+        vacancy_update: Updated vacancy data
+        admin_id: ID of admin updating the vacancy
+        admin_role: Role of admin (administrator, super_admin skip re-moderation)
+    """
     db_vacancy = db.query(Vacancy).filter(Vacancy.id == vacancy_id).first()
     if not db_vacancy:
         return None
 
     update_data = vacancy_update.dict(exclude_unset=True, exclude={'required_skills'})
 
+    # Define major fields that trigger re-moderation
+    major_fields = ['description_kz', 'description_ru', 'requirements_kz', 'requirements_ru', 'company_name', 'profession_id']
+    major_update = any(field in update_data for field in major_fields)
+
+    # Check if admin bypasses moderation
+    is_admin = admin_role in ['administrator', 'super_admin'] if admin_role else False
+
+    # If major update by non-admin on approved content, require re-moderation
+    if major_update and not is_admin and db_vacancy.moderation_status == 'approved':
+        db_vacancy.moderation_status = 'pending'
+        db_vacancy.moderated_at = None
+        db_vacancy.moderated_by = None
+    elif major_update and is_admin:
+        # Admin updates stay approved
+        db_vacancy.moderated_at = datetime.utcnow()
+        db_vacancy.moderated_by = admin_id
+
+    # Update fields
     for field, value in update_data.items():
         setattr(db_vacancy, field, value)
 
@@ -851,11 +893,22 @@ def get_event(db: Session, event_id: int):
     return db.query(Event).filter(Event.id == event_id).first()
 
 
-def create_event(db: Session, event: EventCreate):
-    """Create a new event with programs and speakers"""
+def create_event(db: Session, event: EventCreate, admin_id: Optional[int] = None, admin_role: Optional[str] = None):
+    """Create a new event with programs and speakers
+
+    Args:
+        db: Database session
+        event: Event data
+        admin_id: ID of admin creating the event
+        admin_role: Role of admin (administrator, super_admin auto-approve)
+    """
     # Extract nested objects
     programs = event.programs
     speakers = event.speakers
+
+    # Determine moderation status based on admin role
+    is_admin_created = admin_role in ['administrator', 'super_admin'] if admin_role else False
+    moderation_status = 'approved' if is_admin_created else 'pending'
 
     # Create event object without nested objects
     db_event = Event(
@@ -864,7 +917,12 @@ def create_event(db: Session, event: EventCreate):
         location=event.location,
         format=event.format,
         description=event.description,
-        event_photo=event.event_photo
+        event_photo=event.event_photo,
+        admin_id=admin_id,
+        moderation_status=moderation_status,
+        is_admin_created=is_admin_created,
+        moderated_at=datetime.utcnow() if is_admin_created else None,
+        moderated_by=admin_id if is_admin_created else None
     )
 
     # Add event to session
@@ -900,13 +958,39 @@ def create_event(db: Session, event: EventCreate):
     return db_event
 
 
-def update_event(db: Session, event_id: int, event_update: EventUpdate):
-    """Update an existing event"""
+def update_event(db: Session, event_id: int, event_update: EventUpdate, admin_id: Optional[int] = None, admin_role: Optional[str] = None):
+    """Update an existing event with re-moderation logic
+
+    Args:
+        db: Database session
+        event_id: Event ID to update
+        event_update: Updated event data
+        admin_id: ID of admin updating the event
+        admin_role: Role of admin (administrator, super_admin skip re-moderation)
+    """
     db_event = db.query(Event).filter(Event.id == event_id).first()
 
     if db_event:
-        # Update fields that are provided
         update_data = event_update.dict(exclude_unset=True)
+
+        # Define major fields that trigger re-moderation
+        major_fields = ['title', 'description', 'location', 'event_date']
+        major_update = any(field in update_data for field in major_fields)
+
+        # Check if admin bypasses moderation
+        is_admin = admin_role in ['administrator', 'super_admin'] if admin_role else False
+
+        # If major update by non-admin on approved content, require re-moderation
+        if major_update and not is_admin and db_event.moderation_status == 'approved':
+            db_event.moderation_status = 'pending'
+            db_event.moderated_at = None
+            db_event.moderated_by = None
+        elif major_update and is_admin:
+            # Admin updates stay approved
+            db_event.moderated_at = datetime.utcnow()
+            db_event.moderated_by = admin_id
+
+        # Update fields
         for field, value in update_data.items():
             setattr(db_event, field, value)
 
@@ -1066,8 +1150,19 @@ def get_course(db: Session, course_id: int) -> Optional[Course]:
     return db.query(Course).filter(Course.id == course_id).first()
 
 
-def create_course(db: Session, course: CourseCreate, author_id: int) -> Course:
-    """Создание нового курса"""
+def create_course(db: Session, course: CourseCreate, author_id: int, admin_role: Optional[str] = None) -> Course:
+    """Создание нового курса с авто-модерацией
+
+    Args:
+        db: Database session
+        course: Course data
+        author_id: ID of author creating the course
+        admin_role: Role of admin (administrator, super_admin auto-approve)
+    """
+    # Determine moderation status based on admin role
+    is_admin_created = admin_role in ['administrator', 'super_admin'] if admin_role else False
+    moderation_status = 'approved' if is_admin_created else 'pending'
+
     # Создаем курс
     db_course = Course(
         title=course.title,
@@ -1084,7 +1179,11 @@ def create_course(db: Session, course: CourseCreate, author_id: int) -> Course:
         is_free=course.is_free,
         author_id=author_id,
         created_at=datetime.utcnow(),
-        updated_at=datetime.utcnow()
+        updated_at=datetime.utcnow(),
+        moderation_status=moderation_status,
+        is_admin_created=is_admin_created,
+        moderated_at=datetime.utcnow() if is_admin_created else None,
+        moderated_by=author_id if is_admin_created else None
     )
 
     db.add(db_course)
@@ -1109,14 +1208,41 @@ def create_course(db: Session, course: CourseCreate, author_id: int) -> Course:
     return db_course
 
 
-def update_course(db: Session, course_id: int, course_update: CourseUpdate) -> Optional[Course]:
-    """Обновление существующего курса"""
+def update_course(db: Session, course_id: int, course_update: CourseUpdate, admin_id: Optional[int] = None, admin_role: Optional[str] = None) -> Optional[Course]:
+    """Обновление существующего курса с повторной модерацией
+
+    Args:
+        db: Database session
+        course_id: Course ID to update
+        course_update: Updated course data
+        admin_id: ID of admin updating the course
+        admin_role: Role of admin (administrator, super_admin skip re-moderation)
+    """
     db_course = db.query(Course).filter(Course.id == course_id).first()
     if not db_course:
         return None
 
+    update_data = course_update.dict(exclude_unset=True)
+
+    # Define major fields that trigger re-moderation
+    major_fields = ['title', 'description', 'course_url', 'price', 'cover_image']
+    major_update = any(field in update_data for field in major_fields)
+
+    # Check if admin bypasses moderation
+    is_admin = admin_role in ['administrator', 'super_admin'] if admin_role else False
+
+    # If major update by non-admin on approved content, require re-moderation
+    if major_update and not is_admin and db_course.moderation_status == 'approved':
+        db_course.moderation_status = 'pending'
+        db_course.moderated_at = None
+        db_course.moderated_by = None
+    elif major_update and is_admin:
+        # Admin updates stay approved
+        db_course.moderated_at = datetime.utcnow()
+        db_course.moderated_by = admin_id
+
     # Обновляем поля курса
-    for field, value in course_update.dict(exclude_unset=True).items():
+    for field, value in update_data.items():
         if field == "categories":
             # Обработка категорий отдельно
             continue

@@ -9,8 +9,9 @@ from app.project_models import (
     ProjectApplication, VotingResults,  ProjectStatusEnum
 )
 from app.project_schemas import (
-    ProjectCreate, ProjectUpdate, VotingParticipantCreate, ProjectApplicationCreate
+    ProjectCreate, ProjectUpdate, VotingParticipantCreate, ProjectApplicationCreate, ProjectResponse
 )
+from app.schemas import ModerationStats, ModerationStatus
 from typing import List, Optional
 import os
 import uuid
@@ -1680,7 +1681,11 @@ def admin_create_project(
     db: Session = Depends(get_db),
     current_admin: models.Admin = Depends(require_permission(Module.PROJECTS, Permission.CREATE))
 ):
-    """Admin: Create project with admin_id tracking"""
+    """Admin: Create project with auto-approval for administrators/super_admins"""
+    # Determine moderation status based on admin role
+    is_admin_created = current_admin.role in ['administrator', 'super_admin']
+    moderation_status = 'approved' if is_admin_created else 'pending'
+
     # Create project
     new_project = Project(
         title=project_data.title,
@@ -1694,7 +1699,11 @@ def admin_create_project(
         end_date=project_data.end_date,
         photo_url=project_data.photo_url,
         video_url=project_data.video_url,
-        admin_id=current_admin.id  # Set owner
+        admin_id=current_admin.id,
+        moderation_status=moderation_status,
+        is_admin_created=is_admin_created,
+        moderated_at=datetime.utcnow() if is_admin_created else None,
+        moderated_by=current_admin.id if is_admin_created else None
     )
 
     db.add(new_project)
@@ -1711,7 +1720,7 @@ def admin_update_project(
     db: Session = Depends(get_db),
     current_admin: models.Admin = Depends(require_permission(Module.PROJECTS, Permission.UPDATE))
 ):
-    """Admin: Update project with ownership check"""
+    """Admin: Update project with ownership check and re-moderation logic"""
     # Get existing project
     query = db.query(Project).filter(Project.id == project_id)
 
@@ -1724,6 +1733,27 @@ def admin_update_project(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Проект не найден или у вас нет прав на его редактирование"
         )
+
+    # Define major fields that trigger re-moderation
+    major_fields = ['title', 'title_ru', 'description', 'description_ru', 'author', 'project_type']
+    major_update = any(
+        getattr(project_data, field) is not None
+        for field in major_fields
+    )
+
+    # Check if admin bypasses moderation
+    is_admin = current_admin.role in ['administrator', 'super_admin']
+
+    # Apply re-moderation logic
+    if major_update and not is_admin and existing_project.moderation_status == 'approved':
+        # Major update by non-admin on approved content requires re-moderation
+        existing_project.moderation_status = 'pending'
+        existing_project.moderated_at = None
+        existing_project.moderated_by = None
+    elif major_update and is_admin:
+        # Admin updates stay approved
+        existing_project.moderated_at = datetime.utcnow()
+        existing_project.moderated_by = current_admin.id
 
     # Update fields
     if project_data.title is not None:
@@ -1800,4 +1830,115 @@ def admin_get_project(
             detail="Проект не найден или у вас нет прав на его просмотр"
         )
 
+    return project
+
+
+# ============================================
+# Moderation Endpoints
+# ============================================
+
+@router.get("/admin/moderation/stats", response_model=ModerationStats)
+def get_projects_moderation_stats(
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_module_access(Module.PROJECTS, allow_read_only=True))
+):
+    """
+    Get project moderation statistics.
+    Shows total, pending, approved, and rejected project counts.
+    """
+    total = db.query(Project).count()
+    pending = db.query(Project).filter(Project.moderation_status == 'pending').count()
+    approved = db.query(Project).filter(Project.moderation_status == 'approved').count()
+    rejected = db.query(Project).filter(Project.moderation_status == 'rejected').count()
+
+    return {
+        "total": total,
+        "pending": pending,
+        "approved": approved,
+        "rejected": rejected
+    }
+
+
+@router.get("/admin/moderation/pending", response_model=List[ProjectResponse])
+def get_pending_projects(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_module_access(Module.PROJECTS, allow_read_only=True))
+):
+    """
+    Get all pending projects awaiting moderation.
+    Returns projects with moderation_status='pending'.
+    """
+    projects = db.query(Project).filter(
+        Project.moderation_status == 'pending'
+    ).offset(skip).limit(limit).all()
+
+    return projects
+
+
+@router.get("/admin/moderation/all-statuses", response_model=List[ProjectResponse])
+def get_all_projects_with_status(
+    moderation_status: Optional[ModerationStatus] = Query(None),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_module_access(Module.PROJECTS, allow_read_only=True))
+):
+    """
+    Get all projects with optional status filter.
+    Admin endpoint - shows all projects regardless of moderation status.
+    """
+    query = db.query(Project)
+
+    if moderation_status:
+        query = query.filter(Project.moderation_status == moderation_status.value)
+
+    projects = query.offset(skip).limit(limit).all()
+    return projects
+
+
+@router.post("/admin/moderation/{project_id}/approve", response_model=ProjectResponse)
+def approve_project(
+    project_id: int,
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_permission(Module.PROJECTS, Permission.UPDATE))
+):
+    """
+    Approve a project.
+    Changes moderation_status to 'approved' and records moderator info.
+    """
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+    project.moderation_status = 'approved'
+    project.moderated_at = datetime.utcnow()
+    project.moderated_by = current_admin.id
+
+    db.commit()
+    db.refresh(project)
+    return project
+
+
+@router.post("/admin/moderation/{project_id}/reject", response_model=ProjectResponse)
+def reject_project(
+    project_id: int,
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_permission(Module.PROJECTS, Permission.UPDATE))
+):
+    """
+    Reject a project.
+    Changes moderation_status to 'rejected' and records moderator info.
+    """
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+    project.moderation_status = 'rejected'
+    project.moderated_at = datetime.utcnow()
+    project.moderated_by = current_admin.id
+
+    db.commit()
+    db.refresh(project)
     return project

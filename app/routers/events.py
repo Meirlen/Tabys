@@ -12,11 +12,14 @@ from app.schemas import (
     EventCreate,
     EventUpdate,
     EventParticipantCreate,
-    EventParticipant
+    EventParticipant,
+    ModerationStats,
+    ModerationStatus
 )
-from app import crud
+from app import crud, models
 from app.utils import send_email
-from app.oauth2 import get_current_user
+from app.oauth2 import get_current_user, get_current_admin
+from app.rbac import Module, Permission, require_module_access, require_permission, apply_owner_filter
 
 router = APIRouter(prefix="/api/v2/events", tags=["Events"])
 
@@ -317,11 +320,6 @@ def delete_event_photo(
 
 # ========== ADMIN ENDPOINTS WITH RBAC ==========
 
-from app.oauth2 import get_current_admin
-from app.rbac import Module, Permission, require_module_access, require_permission, apply_owner_filter
-from app import models
-
-
 @router.get("/admin/list", response_model=List[EventList])
 def admin_list_events(
     skip: int = Query(0, ge=0),
@@ -368,14 +366,13 @@ def admin_create_event(
     db: Session = Depends(get_db),
     current_admin: models.Admin = Depends(require_permission(Module.EVENTS, Permission.CREATE))
 ):
-    """Admin: Create event with admin_id tracking"""
-    # Create event and set admin_id
-    new_event = crud.create_event(db=db, event=event)
-    new_event.admin_id = current_admin.id
-    db.commit()
-    db.refresh(new_event)
-
-    return new_event
+    """Admin: Create event with auto-approval for administrators/super_admins"""
+    return crud.create_event(
+        db=db,
+        event=event,
+        admin_id=current_admin.id,
+        admin_role=current_admin.role
+    )
 
 
 @router.put("/admin/{event_id}", response_model=EventDetail)
@@ -385,7 +382,7 @@ def admin_update_event(
     db: Session = Depends(get_db),
     current_admin: models.Admin = Depends(require_permission(Module.EVENTS, Permission.UPDATE))
 ):
-    """Admin: Update event with ownership check"""
+    """Admin: Update event with ownership check and re-moderation logic"""
     # Get existing event
     query = db.query(models.Event).filter(models.Event.id == event_id)
 
@@ -399,7 +396,13 @@ def admin_update_event(
             detail="Мероприятие не найдено или у вас нет прав на его редактирование"
         )
 
-    return crud.update_event(db=db, event_id=event_id, event_update=event_update)
+    return crud.update_event(
+        db=db,
+        event_id=event_id,
+        event_update=event_update,
+        admin_id=current_admin.id,
+        admin_role=current_admin.role
+    )
 
 
 @router.delete("/admin/{event_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -424,6 +427,100 @@ def admin_delete_event(
 
     crud.delete_event(db=db, event_id=event_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# ========== MODERATION ENDPOINTS ==========
+# NOTE: These must come BEFORE the /admin/{event_id} catch-all route
+
+@router.get("/admin/moderation/stats", response_model=ModerationStats)
+def get_events_moderation_stats(
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_module_access(Module.EVENTS, allow_read_only=True))
+):
+    """Get event moderation statistics"""
+    total = db.query(models.Event).count()
+    pending = db.query(models.Event).filter(models.Event.moderation_status == 'pending').count()
+    approved = db.query(models.Event).filter(models.Event.moderation_status == 'approved').count()
+    rejected = db.query(models.Event).filter(models.Event.moderation_status == 'rejected').count()
+
+    return {
+        "total": total,
+        "pending": pending,
+        "approved": approved,
+        "rejected": rejected
+    }
+
+
+@router.get("/admin/moderation/pending", response_model=List[EventDetail])
+def get_pending_events(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_module_access(Module.EVENTS, allow_read_only=True))
+):
+    """Get all pending events awaiting moderation"""
+    events = db.query(models.Event).filter(
+        models.Event.moderation_status == 'pending'
+    ).order_by(models.Event.created_at.desc()).offset(skip).limit(limit).all()
+    return events
+
+
+@router.get("/admin/moderation/all-statuses", response_model=List[EventDetail])
+def get_all_events_with_status(
+    moderation_status: Optional[ModerationStatus] = Query(None),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_module_access(Module.EVENTS, allow_read_only=True))
+):
+    """Get all events with any status (admin only)"""
+    query = db.query(models.Event)
+
+    if moderation_status:
+        query = query.filter(models.Event.moderation_status == moderation_status.value)
+
+    events = query.order_by(models.Event.created_at.desc()).offset(skip).limit(limit).all()
+    return events
+
+
+@router.post("/admin/moderation/{event_id}/approve", response_model=EventDetail)
+def approve_event(
+    event_id: int,
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_permission(Module.EVENTS, Permission.UPDATE))
+):
+    """Approve an event"""
+    event = db.query(models.Event).filter(models.Event.id == event_id).first()
+    if not event:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+
+    event.moderation_status = 'approved'
+    event.moderated_at = datetime.utcnow()
+    event.moderated_by = current_admin.id
+
+    db.commit()
+    db.refresh(event)
+    return event
+
+
+@router.post("/admin/moderation/{event_id}/reject", response_model=EventDetail)
+def reject_event(
+    event_id: int,
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_permission(Module.EVENTS, Permission.UPDATE))
+):
+    """Reject an event"""
+    event = db.query(models.Event).filter(models.Event.id == event_id).first()
+    if not event:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+
+    event.moderation_status = 'rejected'
+    event.moderated_at = datetime.utcnow()
+    event.moderated_by = current_admin.id
+
+    db.commit()
+    db.refresh(event)
+    return event
 
 
 @router.get("/admin/{event_id}", response_model=EventDetail)

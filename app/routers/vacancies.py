@@ -537,7 +537,7 @@ def admin_create_vacancy(
     db: Session = Depends(get_db),
     current_admin: models.Admin = Depends(require_permission(Module.VACANCIES, Permission.CREATE))
 ):
-    """Admin: Create vacancy with admin_id tracking"""
+    """Admin: Create vacancy with auto-approval for administrators/super_admins"""
     # Validation checks (profession, city, skills)
     if vacancy.profession_id:
         profession = db.query(resume_models.Profession).filter(
@@ -561,13 +561,12 @@ def admin_create_vacancy(
                 detail="Город не найден"
             )
 
-    # Create vacancy and set admin_id
-    new_vacancy = crud.create_vacancy(db=db, vacancy=vacancy)
-    new_vacancy.admin_id = current_admin.id
-    db.commit()
-    db.refresh(new_vacancy)
-
-    return new_vacancy
+    return crud.create_vacancy(
+        db=db,
+        vacancy=vacancy,
+        admin_id=current_admin.id,
+        admin_role=current_admin.role
+    )
 
 
 @router.put("/admin/{vacancy_id}")
@@ -577,7 +576,7 @@ def admin_update_vacancy(
     db: Session = Depends(get_db),
     current_admin: models.Admin = Depends(require_permission(Module.VACANCIES, Permission.UPDATE))
 ):
-    """Admin: Update vacancy with ownership check"""
+    """Admin: Update vacancy with ownership check and re-moderation logic"""
     # Get existing vacancy
     query = db.query(models.Vacancy).filter(models.Vacancy.id == vacancy_id)
 
@@ -614,7 +613,13 @@ def admin_update_vacancy(
                 detail="Город не найден"
             )
 
-    return crud.update_vacancy(db=db, vacancy_id=vacancy_id, vacancy_update=vacancy)
+    return crud.update_vacancy(
+        db=db,
+        vacancy_id=vacancy_id,
+        vacancy_update=vacancy,
+        admin_id=current_admin.id,
+        admin_role=current_admin.role
+    )
 
 
 @router.delete("/admin/{vacancy_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -660,4 +665,99 @@ def admin_get_vacancy(
             detail="Вакансия не найдена или у вас нет прав на её просмотр"
         )
 
+    return vacancy
+
+
+# ========== MODERATION ENDPOINTS ==========
+
+from app.schemas import ModerationStats
+
+@router.get("/admin/moderation/stats", response_model=ModerationStats)
+def get_vacancies_moderation_stats(
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_module_access(Module.VACANCIES, allow_read_only=True))
+):
+    """Get vacancy moderation statistics"""
+    total = db.query(models.Vacancy).count()
+    pending = db.query(models.Vacancy).filter(models.Vacancy.moderation_status == 'pending').count()
+    approved = db.query(models.Vacancy).filter(models.Vacancy.moderation_status == 'approved').count()
+    rejected = db.query(models.Vacancy).filter(models.Vacancy.moderation_status == 'rejected').count()
+
+    return {
+        "total": total,
+        "pending": pending,
+        "approved": approved,
+        "rejected": rejected
+    }
+
+
+@router.get("/admin/moderation/pending", response_model=List[VacancyDetail])
+def get_pending_vacancies(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_module_access(Module.VACANCIES, allow_read_only=True))
+):
+    """Get all pending vacancies awaiting moderation"""
+    vacancies = db.query(models.Vacancy).filter(
+        models.Vacancy.moderation_status == 'pending'
+    ).order_by(models.Vacancy.created_at.desc()).offset(skip).limit(limit).all()
+    return vacancies
+
+
+@router.get("/admin/moderation/all-statuses", response_model=List[VacancyDetail])
+def get_all_vacancies_with_status(
+    moderation_status: Optional[str] = Query(None),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_module_access(Module.VACANCIES, allow_read_only=True))
+):
+    """Get all vacancies with any status (admin only)"""
+    query = db.query(models.Vacancy)
+
+    if moderation_status:
+        query = query.filter(models.Vacancy.moderation_status == moderation_status)
+
+    vacancies = query.order_by(models.Vacancy.created_at.desc()).offset(skip).limit(limit).all()
+    return vacancies
+
+
+@router.post("/admin/moderation/{vacancy_id}/approve", response_model=VacancyDetail)
+def approve_vacancy(
+    vacancy_id: int,
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_permission(Module.VACANCIES, Permission.UPDATE))
+):
+    """Approve a vacancy"""
+    vacancy = db.query(models.Vacancy).filter(models.Vacancy.id == vacancy_id).first()
+    if not vacancy:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vacancy not found")
+
+    vacancy.moderation_status = 'approved'
+    vacancy.moderated_at = datetime.utcnow()
+    vacancy.moderated_by = current_admin.id
+
+    db.commit()
+    db.refresh(vacancy)
+    return vacancy
+
+
+@router.post("/admin/moderation/{vacancy_id}/reject", response_model=VacancyDetail)
+def reject_vacancy(
+    vacancy_id: int,
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_permission(Module.VACANCIES, Permission.UPDATE))
+):
+    """Reject a vacancy"""
+    vacancy = db.query(models.Vacancy).filter(models.Vacancy.id == vacancy_id).first()
+    if not vacancy:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vacancy not found")
+
+    vacancy.moderation_status = 'rejected'
+    vacancy.moderated_at = datetime.utcnow()
+    vacancy.moderated_by = current_admin.id
+
+    db.commit()
+    db.refresh(vacancy)
     return vacancy

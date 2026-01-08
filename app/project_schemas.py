@@ -50,6 +50,33 @@ class ProjectUpdate(BaseModel):
     status: Optional[ProjectStatus] = None
 
 
+class ProjectResponse(BaseModel):
+    id: int
+    title: str
+    title_ru: str
+    description: str
+    description_ru: str
+    author: str
+    project_type: str
+    status: str
+    start_date: datetime
+    end_date: datetime
+    photo_url: Optional[str] = None
+    video_url: Optional[str] = None
+    created_at: datetime
+    admin_id: Optional[int] = None
+
+    # Moderation fields
+    moderation_status: str = "approved"
+    moderated_at: Optional[datetime] = None
+    moderated_by: Optional[int] = None
+    moderation_comment: Optional[str] = None
+    is_admin_created: bool = False
+
+    class Config:
+        from_attributes = True
+
+
 class VotingParticipantCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
     description: Optional[str] = None

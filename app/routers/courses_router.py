@@ -5,9 +5,10 @@ from typing import List, Optional
 from app.database import get_db
 from app.schemas import *
 from app.models import Course
-from app import crud
+from app import crud, models
 from app.utils import send_email, validate_file_extension, save_upload_file
 from app.oauth2 import get_current_user
+from app.rbac import Module, Permission, require_permission, require_module_access
 from datetime import datetime
 import os
 
@@ -839,6 +840,258 @@ def list_pending_courses(
     courses = db.query(Course).filter(Course.status == "pending").offset(skip).limit(limit).all()
     return courses
 
+
+# ============================================
+# Moderation Endpoints
+# ============================================
+
+@router.get("/admin/moderation/stats", response_model=ModerationStats)
+def get_courses_moderation_stats(
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_module_access(Module.COURSES, allow_read_only=True))
+):
+    """
+    Get course moderation statistics.
+    Shows total, pending, approved, and rejected course counts.
+    """
+    total = db.query(models.Course).count()
+    pending = db.query(models.Course).filter(models.Course.moderation_status == 'pending').count()
+    approved = db.query(models.Course).filter(models.Course.moderation_status == 'approved').count()
+    rejected = db.query(models.Course).filter(models.Course.moderation_status == 'rejected').count()
+
+    return {
+        "total": total,
+        "pending": pending,
+        "approved": approved,
+        "rejected": rejected
+    }
+
+
+@router.get("/admin/moderation/pending", response_model=List[CourseDetail])
+def get_pending_courses(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_module_access(Module.COURSES, allow_read_only=True))
+):
+    """
+    Get all pending courses awaiting moderation.
+    Returns courses with moderation_status='pending'.
+    """
+    courses = db.query(models.Course).filter(
+        models.Course.moderation_status == 'pending'
+    ).offset(skip).limit(limit).all()
+
+    return courses
+
+
+@router.get("/admin/moderation/all-statuses", response_model=List[CourseDetail])
+def get_all_courses_with_status(
+    moderation_status: Optional[ModerationStatus] = Query(None),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_module_access(Module.COURSES, allow_read_only=True))
+):
+    """
+    Get all courses with optional status filter.
+    Admin endpoint - shows all courses regardless of moderation status.
+    """
+    query = db.query(models.Course)
+
+    if moderation_status:
+        query = query.filter(models.Course.moderation_status == moderation_status.value)
+
+    courses = query.offset(skip).limit(limit).all()
+    return courses
+
+
+@router.post("/admin/moderation/{course_id}/approve", response_model=CourseDetail)
+def approve_course(
+    course_id: int,
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_permission(Module.COURSES, Permission.UPDATE))
+):
+    """
+    Approve a course.
+    Changes moderation_status to 'approved' and records moderator info.
+    """
+    course = db.query(models.Course).filter(models.Course.id == course_id).first()
+    if not course:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Course not found")
+
+    course.moderation_status = 'approved'
+    course.moderated_at = datetime.utcnow()
+    course.moderated_by = current_admin.id
+
+    db.commit()
+    db.refresh(course)
+    return course
+
+
+@router.post("/admin/moderation/{course_id}/reject", response_model=CourseDetail)
+def reject_course(
+    course_id: int,
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_permission(Module.COURSES, Permission.UPDATE))
+):
+    """
+    Reject a course.
+    Changes moderation_status to 'rejected' and records moderator info.
+    """
+    course = db.query(models.Course).filter(models.Course.id == course_id).first()
+    if not course:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Course not found")
+
+    course.moderation_status = 'rejected'
+    course.moderated_at = datetime.utcnow()
+    course.moderated_by = current_admin.id
+
+    db.commit()
+    db.refresh(course)
+    return course
+
+
+# ========== ADMIN CRUD ENDPOINTS WITH AUTO-APPROVAL ==========
+
+@router.post("/admin/create", response_model=CourseDetail, status_code=status.HTTP_201_CREATED)
+async def admin_create_course(
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_permission(Module.COURSES, Permission.CREATE)),
+    title: str = Form(...),
+    description: str = Form(...),
+    course_url: str = Form(...),
+    language: str = Form(...),
+    duration: int = Form(...),
+    skills: str = Form(...),
+    currency: str = Form(...),
+    price: float = Form(...),
+    level: Optional[str] = Form(None),
+    is_free: bool = Form(False),
+    categories: List[int] = Form([]),
+    cover_image: Optional[UploadFile] = File(None),
+    video_preview: Optional[str] = Form(None)
+):
+    """
+    Admin: Create course with auto-approval for administrators/super_admins
+    """
+    # Create upload directory
+    upload_dir = os.path.join("uploads", "courses")
+    os.makedirs(upload_dir, exist_ok=True)
+
+    # Save cover image if uploaded
+    cover_image_path = None
+    if cover_image:
+        allowed_extensions = ['jpg', 'jpeg', 'png', 'gif']
+        if not validate_file_extension(cover_image.filename, allowed_extensions):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Разрешены только файлы изображений (jpg, jpeg, png, gif)"
+            )
+        cover_image_path = await save_upload_file(cover_image, upload_dir)
+
+    video_preview_path = video_preview
+
+    # Create course data
+    course_data = CourseCreate(
+        title=title,
+        description=description,
+        course_url=course_url,
+        language=language,
+        duration=duration,
+        skills=skills,
+        currency=currency,
+        price=price,
+        level=level,
+        cover_image=cover_image_path,
+        video_preview=video_preview_path,
+        categories=categories,
+        is_free=is_free
+    )
+
+    # Create course with auto-approval logic
+    course = crud.create_course(
+        db=db,
+        course=course_data,
+        author_id=current_admin.id,
+        admin_role=current_admin.role
+    )
+
+    return course
+
+
+@router.put("/admin/{course_id}", response_model=CourseDetail)
+async def admin_update_course(
+    course_id: int,
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_permission(Module.COURSES, Permission.UPDATE)),
+    title: Optional[str] = Form(None),
+    description: Optional[str] = Form(None),
+    course_url: Optional[str] = Form(None),
+    language: Optional[str] = Form(None),
+    duration: Optional[int] = Form(None),
+    skills: Optional[str] = Form(None),
+    currency: Optional[str] = Form(None),
+    price: Optional[float] = Form(None),
+    level: Optional[str] = Form(None),
+    is_free: Optional[bool] = Form(None),
+    categories: Optional[List[int]] = Form(None),
+    cover_image: Optional[UploadFile] = File(None),
+    video_preview: Optional[str] = Form(None)
+):
+    """
+    Admin: Update course with re-moderation logic for major field changes
+    """
+    # Check if course exists
+    existing_course = crud.get_course(db, course_id=course_id)
+    if not existing_course:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Курс не найден"
+        )
+
+    # Handle cover image upload
+    cover_image_path = None
+    if cover_image:
+        upload_dir = os.path.join("uploads", "courses")
+        os.makedirs(upload_dir, exist_ok=True)
+
+        allowed_extensions = ['jpg', 'jpeg', 'png', 'gif']
+        if not validate_file_extension(cover_image.filename, allowed_extensions):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Разрешены только файлы изображений (jpg, jpeg, png, gif)"
+            )
+        cover_image_path = await save_upload_file(cover_image, upload_dir)
+
+    # Build update data
+    course_update = CourseUpdate(
+        title=title,
+        description=description,
+        course_url=course_url,
+        language=language,
+        duration=duration,
+        skills=skills,
+        currency=currency,
+        price=price,
+        level=level,
+        cover_image=cover_image_path if cover_image else None,
+        video_preview=video_preview,
+        categories=categories,
+        is_free=is_free
+    )
+
+    # Update course with re-moderation logic
+    updated_course = crud.update_course(
+        db=db,
+        course_id=course_id,
+        course_update=course_update,
+        admin_id=current_admin.id,
+        admin_role=current_admin.role
+    )
+
+    return updated_course
 
 
 

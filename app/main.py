@@ -1,7 +1,7 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from app.routers import experts, auth,volunteer_auth,volunteer_admin_routes,volunteer_routes, vacancies, admin_auth_router,resume_routes,leisure_routes, events, certificates, projects, news, analytics, telegram_auth, broadcasts
+from app.routers import experts, auth,volunteer_auth,volunteer_admin_routes,volunteer_routes, vacancies, admin_auth_router,resume_routes,leisure_routes, events, certificates, projects, news, analytics, telegram_auth, broadcasts, moderation
 from app.routers import courses_router
 from app.database import engine, Base
 
@@ -113,6 +113,7 @@ app.include_router(news.router)
 app.include_router(news.admin_router)
 app.include_router(news.parser_router)
 app.include_router(analytics.router)
+app.include_router(moderation.router)  # Unified Moderation
 app.include_router(telegram_auth.router)  # Telegram Bot Authentication
 app.include_router(broadcasts.router)  # Telegram Broadcasts
 
