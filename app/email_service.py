@@ -36,12 +36,13 @@ class EmailService:
             SMTP connection or None if connection fails
         """
         try:
-            # Create SMTP connection
-            server = smtplib.SMTP(self.smtp_server, self.smtp_port)
+            # Create SMTP connection with timeout
+            server = smtplib.SMTP(self.smtp_server, self.smtp_port, timeout=30)
             server.starttls()  # Enable TLS encryption
 
-            # Login to Gmail
-            server.login(self.username, self.password)
+            # Login to Gmail (remove spaces from password if any)
+            password = self.password.replace(' ', '') if self.password else ''
+            server.login(self.username, password)
 
             logger.info("SMTP connection established successfully")
             return server
