@@ -12,8 +12,8 @@ services:
     volumes:
       - ./uploads:/usr/src/app/uploads
     restart: unless-stopped
-    extra_hosts:
-      - 'host.docker.internal:host-gateway'
+    networks:
+      - app-network
 
   postgres:
     image: postgres:15
@@ -25,6 +25,8 @@ services:
       # Дополнительно: backup директория на хосте
       - ./backups:/backups
     restart: unless-stopped
+    networks:
+      - app-network
     # Добавляем healthcheck
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}']
@@ -44,6 +46,14 @@ services:
     restart: unless-stopped
     depends_on:
       - postgres
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.enable_ip_masquerade: "true"
 
 volumes:
   postgres-db:
