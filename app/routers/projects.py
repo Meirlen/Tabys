@@ -1686,6 +1686,15 @@ def admin_create_project(
     is_admin_created = current_admin.role in ['administrator', 'super_admin']
     moderation_status = 'approved' if is_admin_created else 'pending'
 
+    # Determine project status
+    # Non-admins (NPO, MSB) can only create drafts - projects become active after moderation approval
+    # Admins can create active projects immediately
+    if is_admin_created:
+        project_status = project_data.status or "draft"
+    else:
+        # Force draft status for non-admins until approved
+        project_status = "draft"
+
     # Create project
     new_project = Project(
         title=project_data.title,
@@ -1694,7 +1703,7 @@ def admin_create_project(
         description_ru=project_data.description_ru,
         author=project_data.author,
         project_type=project_data.project_type,
-        status=project_data.status or "draft",
+        status=project_status,
         start_date=project_data.start_date,
         end_date=project_data.end_date,
         photo_url=project_data.photo_url,
@@ -1906,7 +1915,7 @@ def approve_project(
 ):
     """
     Approve a project.
-    Changes moderation_status to 'approved' and records moderator info.
+    Changes moderation_status to 'approved', sets status to 'active', and records moderator info.
     """
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
@@ -1915,6 +1924,10 @@ def approve_project(
     project.moderation_status = 'approved'
     project.moderated_at = datetime.utcnow()
     project.moderated_by = current_admin.id
+
+    # Automatically activate the project when approved
+    if project.status == 'draft':
+        project.status = 'active'
 
     db.commit()
     db.refresh(project)

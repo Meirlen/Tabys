@@ -6,10 +6,16 @@ from app.routers import courses_router
 from app.database import engine, Base
 
 # Импортируем модели проектов для создания таблиц
-from app import project_models, news_models, analytics_models, telegram_otp_models, broadcast_models
+from app import project_models, news_models, analytics_models, telegram_otp_models, broadcast_models, moderation_notification_models
 
 # Импортируем планировщик новостей
 from app.news_scheduler import start_scheduler, stop_scheduler
+
+# Импортируем планировщик уведомлений о модерации
+from app.moderation_notification_scheduler import (
+    start_scheduler as start_moderation_scheduler,
+    stop_scheduler as stop_moderation_scheduler
+)
 
 import uvicorn
 import os
@@ -29,10 +35,19 @@ async def lifespan(app: FastAPI):
     # Startup: Start the news publication scheduler
     logger.info("Starting news publication scheduler...")
     start_scheduler()
+
+    # Startup: Start the moderation notification scheduler
+    logger.info("Starting moderation notification scheduler...")
+    start_moderation_scheduler()
+
     yield
-    # Shutdown: Stop the scheduler
+
+    # Shutdown: Stop the schedulers
     logger.info("Stopping news publication scheduler...")
     stop_scheduler()
+
+    logger.info("Stopping moderation notification scheduler...")
+    stop_moderation_scheduler()
 
 # Инициализация FastAPI приложения
 app = FastAPI(

@@ -41,12 +41,20 @@ def get_target_users(
 
     Args:
         db: Database session
-        target_audience: Target audience filter
+        target_audience: Target audience filter (can be enum or string)
         target_role: Specific role (if BY_ROLE selected)
 
     Returns:
         List of telegram_user_ids to send broadcast to
     """
+    # Convert string to enum if needed (when loaded from database)
+    if isinstance(target_audience, str):
+        try:
+            target_audience = BroadcastTargetAudience(target_audience)
+        except ValueError:
+            # If invalid value, default to ACTIVE_SESSIONS
+            target_audience = BroadcastTargetAudience.ACTIVE_SESSIONS
+
     query = db.query(TelegramSession.telegram_user_id).filter(
         TelegramSession.is_active == True
     )
@@ -432,7 +440,14 @@ async def retry_broadcast(
 
 
 # Background task to process deliveries
-async def send_telegram_broadcast_message(telegram_user_id: str, message: str, broadcast_id: int, bot_token: str) -> tuple[bool, Optional[str]]:
+async def send_telegram_broadcast_message(
+    telegram_user_id: str,
+    message: str,
+    broadcast_id: int,
+    bot_token: str,
+    broadcast_title: str = "",
+    inline_keyboard: Optional[list] = None
+) -> tuple[bool, Optional[str]]:
     """
     Send broadcast message via Telegram Bot API
 
@@ -441,6 +456,8 @@ async def send_telegram_broadcast_message(telegram_user_id: str, message: str, b
         message: Message content (HTML formatted)
         broadcast_id: Broadcast ID
         bot_token: Telegram bot token
+        broadcast_title: Title of broadcast (for conditional logic)
+        inline_keyboard: Custom inline keyboard (optional)
 
     Returns:
         Tuple of (success: bool, error_message: Optional[str])
@@ -448,18 +465,24 @@ async def send_telegram_broadcast_message(telegram_user_id: str, message: str, b
     try:
         url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
 
+        # Default inline keyboard - "Mark as read" button
+        default_keyboard = {
+            "inline_keyboard": [[
+                {
+                    "text": "✅ Отметить как прочитано",
+                    "callback_data": f"broadcast:read:{broadcast_id}"
+                }
+            ]]
+        }
+
+        # Use custom keyboard if provided, otherwise use default
+        reply_markup = inline_keyboard if inline_keyboard else default_keyboard
+
         payload = {
             "chat_id": telegram_user_id,
             "text": f"📢 <b>Объявление от администрации</b>\n\n{message}",
             "parse_mode": "HTML",
-            "reply_markup": {
-                "inline_keyboard": [[
-                    {
-                        "text": "✅ Отметить как прочитано",
-                        "callback_data": f"broadcast:read:{broadcast_id}"
-                    }
-                ]]
-            }
+            "reply_markup": reply_markup
         }
 
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -513,18 +536,37 @@ async def process_broadcast_deliveries(broadcast_id: int):
 
         logger.info(f"Found {len(deliveries)} pending deliveries for broadcast {broadcast_id}")
 
+        # Check if this is a moderation notification (by title)
+        is_moderation_notification = "модерация" in broadcast.title.lower() or "moderation" in broadcast.title.lower()
+
+        # Prepare inline keyboard for moderation notifications
+        inline_keyboard = None
+        if is_moderation_notification:
+            from app.moderation_notification_config import CRM_MODERATION_URL, BUTTON_TEXT
+            inline_keyboard = {
+                "inline_keyboard": [[
+                    {
+                        "text": BUTTON_TEXT,
+                        "url": CRM_MODERATION_URL
+                    }
+                ]]
+            }
+            logger.info(f"Moderation notification detected, using URL button to {CRM_MODERATION_URL}")
+
         sent_count = 0
         failed_count = 0
 
         # Send messages with rate limiting (30 messages per second max)
         for delivery in deliveries:
             logger.info(f"Sending message to telegram_user_id: {delivery.telegram_user_id}")
-            
+
             success, error_msg = await send_telegram_broadcast_message(
                 delivery.telegram_user_id,
                 broadcast.message,
                 broadcast.id,
-                bot_token
+                bot_token,
+                broadcast_title=broadcast.title,
+                inline_keyboard=inline_keyboard
             )
 
             if success:
