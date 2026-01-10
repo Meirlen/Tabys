@@ -146,18 +146,8 @@ async def read_root():
     }
 
 
-# Middleware для добавления CORS заголовков ко всем ответам
-@app.middleware("http")
-async def add_cors_headers(request: Request, call_next):
-    response = await call_next(request)
-
-    # Добавляем CORS заголовки ко всем ответам
-    response.headers["Access-Control-Allow-Origin"] = "*"
-    response.headers["Access-Control-Allow-Credentials"] = "true"
-    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
-    response.headers["Access-Control-Allow-Headers"] = "*"
-
-    return response
+# Note: CORS middleware is already configured above with CORSMiddleware
+# Custom middleware removed to prevent Content-Length conflicts with FileResponse
 
 
 if __name__ == "__main__":
