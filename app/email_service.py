@@ -1,15 +1,13 @@
 """
-Email Notification Service
+Email Notification Service using Resend API
 
-Handles sending email notifications using Gmail SMTP server.
+Handles sending email notifications using Resend.
 Used for moderation notifications and other admin alerts.
 """
 
-import smtplib
 import logging
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 from typing import List, Optional
+import resend
 from config import get_settings
 
 # Configure logging
@@ -18,38 +16,20 @@ logger = logging.getLogger(__name__)
 
 
 class EmailService:
-    """Service for sending email notifications via Gmail SMTP"""
+    """Service for sending email notifications via Resend API"""
 
     def __init__(self):
         self.settings = get_settings()
-        self.smtp_server = self.settings.GMAIL_SMTP_SERVER
-        self.smtp_port = self.settings.GMAIL_SMTP_PORT
-        self.username = self.settings.GMAIL_USERNAME
-        self.password = self.settings.GMAIL_APP_PASSWORD
-        self.from_name = self.settings.GMAIL_FROM_NAME
+        self.api_key = self.settings.RESEND_API_KEY
+        self.from_email = self.settings.RESEND_FROM_EMAIL
+        self.from_name = self.settings.RESEND_FROM_NAME or "SARYARQA JASTARY"
 
-    def _create_smtp_connection(self) -> Optional[smtplib.SMTP]:
-        """
-        Create and return an authenticated SMTP connection
-
-        Returns:
-            SMTP connection or None if connection fails
-        """
-        try:
-            # Create SMTP connection with timeout
-            server = smtplib.SMTP(self.smtp_server, self.smtp_port, timeout=30)
-            server.starttls()  # Enable TLS encryption
-
-            # Login to Gmail (remove spaces from password if any)
-            password = self.password.replace(' ', '') if self.password else ''
-            server.login(self.username, password)
-
-            logger.info("SMTP connection established successfully")
-            return server
-
-        except Exception as e:
-            logger.error(f"Failed to create SMTP connection: {str(e)}")
-            return None
+        # Initialize Resend API
+        if self.api_key:
+            resend.api_key = self.api_key
+            logger.info("Resend API initialized successfully")
+        else:
+            logger.warning("Resend API key not configured")
 
     def send_email(
         self,
@@ -59,19 +39,23 @@ class EmailService:
         body_text: Optional[str] = None
     ) -> bool:
         """
-        Send a single email
+        Send a single email via Resend API
 
         Args:
             to_email: Recipient email address
             subject: Email subject
             body_html: HTML body content
-            body_text: Plain text body content (optional, will use HTML if not provided)
+            body_text: Plain text body content (optional)
 
         Returns:
             bool: True if email sent successfully
         """
-        if not self.username or not self.password:
-            logger.error("Gmail credentials not configured. Please set GMAIL_USERNAME and GMAIL_APP_PASSWORD in .env")
+        if not self.api_key:
+            logger.error("Resend API key not configured. Please set RESEND_API_KEY in .env")
+            return False
+
+        if not self.from_email:
+            logger.error("From email not configured. Please set RESEND_FROM_EMAIL in .env")
             return False
 
         if not to_email:
@@ -79,34 +63,39 @@ class EmailService:
             return False
 
         try:
-            # Create message
-            message = MIMEMultipart("alternative")
-            message["Subject"] = subject
-            message["From"] = f"{self.from_name} <{self.username}>"
-            message["To"] = to_email
+            params = {
+                "from": f"{self.from_name} <{self.from_email}>",
+                "to": [to_email],
+                "subject": subject,
+                "html": body_html,
+            }
 
-            # Add plain text version (fallback)
+            # Add text version if provided
             if body_text:
-                part1 = MIMEText(body_text, "plain")
-                message.attach(part1)
+                params["text"] = body_text
 
-            # Add HTML version
-            part2 = MIMEText(body_html, "html")
-            message.attach(part2)
+            # Send email via Resend API
+            logger.info(f"Sending email to {to_email} via Resend API...")
+            response = resend.Emails.send(params)
 
-            # Create SMTP connection and send
-            server = self._create_smtp_connection()
-            if not server:
+            if response and (isinstance(response, dict) and response.get('id')):
+                logger.info(f"Email sent successfully to {to_email} (ID: {response.get('id')})")
+                return True
+            else:
+                logger.error(f"Failed to send email to {to_email}: Invalid response")
                 return False
 
-            server.sendmail(self.username, to_email, message.as_string())
-            server.quit()
-
-            logger.info(f"Email sent successfully to {to_email}")
-            return True
-
+        except resend.exceptions.ResendError as e:
+            logger.error(f"Resend API error for {to_email}: {str(e)}")
+            if hasattr(e, 'status_code'):
+                logger.error(f"Status code: {e.status_code}")
+            if hasattr(e, 'message'):
+                logger.error(f"Error message: {e.message}")
+            return False
         except Exception as e:
             logger.error(f"Failed to send email to {to_email}: {str(e)}")
+            import traceback
+            traceback.print_exc()
             return False
 
     def send_bulk_emails(
@@ -119,6 +108,9 @@ class EmailService:
         """
         Send the same email to multiple recipients
 
+        Note: Resend allows up to 50 recipients per API call,
+        so we send individually to track success/failure per recipient.
+
         Args:
             recipients: List of recipient email addresses
             subject: Email subject
@@ -128,8 +120,8 @@ class EmailService:
         Returns:
             dict: {"sent": count, "failed": count, "failed_emails": [emails]}
         """
-        if not self.username or not self.password:
-            logger.error("Gmail credentials not configured")
+        if not self.api_key:
+            logger.error("Resend API key not configured")
             return {"sent": 0, "failed": len(recipients), "failed_emails": recipients}
 
         if not recipients:
@@ -147,41 +139,22 @@ class EmailService:
         failed_count = 0
         failed_emails = []
 
-        # Create SMTP connection once for all emails
-        server = self._create_smtp_connection()
-        if not server:
-            return {"sent": 0, "failed": len(valid_recipients), "failed_emails": valid_recipients}
+        logger.info(f"Sending bulk emails to {len(valid_recipients)} recipients...")
 
-        try:
-            for to_email in valid_recipients:
-                try:
-                    # Create message
-                    message = MIMEMultipart("alternative")
-                    message["Subject"] = subject
-                    message["From"] = f"{self.from_name} <{self.username}>"
-                    message["To"] = to_email
+        for to_email in valid_recipients:
+            try:
+                success = self.send_email(to_email, subject, body_html, body_text)
 
-                    # Add plain text version (fallback)
-                    if body_text:
-                        part1 = MIMEText(body_text, "plain")
-                        message.attach(part1)
-
-                    # Add HTML version
-                    part2 = MIMEText(body_html, "html")
-                    message.attach(part2)
-
-                    # Send email
-                    server.sendmail(self.username, to_email, message.as_string())
+                if success:
                     sent_count += 1
-                    logger.info(f"Email sent to {to_email}")
-
-                except Exception as e:
+                else:
                     failed_count += 1
                     failed_emails.append(to_email)
-                    logger.error(f"Failed to send email to {to_email}: {str(e)}")
 
-        finally:
-            server.quit()
+            except Exception as e:
+                failed_count += 1
+                failed_emails.append(to_email)
+                logger.error(f"Failed to send email to {to_email}: {str(e)}")
 
         logger.info(f"Bulk email send complete: {sent_count} sent, {failed_count} failed")
 
