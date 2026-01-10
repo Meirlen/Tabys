@@ -97,7 +97,7 @@ class NewsResponse(NewsBase):
     view_count: Optional[int] = 0
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class NewsSubmit(BaseModel):
     """Schema for parser to submit news articles"""

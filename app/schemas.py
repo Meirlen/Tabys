@@ -150,7 +150,7 @@ class UserResponse(BaseModel):
     created_at: datetime
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class IndividualResponse(UserResponse):
     individual_data: Optional['IndividualData'] = None
@@ -167,7 +167,7 @@ class IndividualData(BaseModel):
     person_status_id: int
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class OrganizationData(BaseModel):
@@ -178,7 +178,7 @@ class OrganizationData(BaseModel):
     address: str
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 # Справочники
@@ -189,7 +189,7 @@ class PersonStatusResponse(BaseModel):
     code: PersonStatusEnum
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class OrganizationTypeResponse(BaseModel):
@@ -199,7 +199,7 @@ class OrganizationTypeResponse(BaseModel):
     code: OrganizationTypeEnum
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 
@@ -230,6 +230,8 @@ class TemplateUpdate(BaseModel):
     message: str
 
 class Chat_Gpt_config_Create(BaseModel):
+    model_config = {"protected_namespaces": ()}  # Allow model_ prefix
+
     instance_id:int
     model_name: str
     message: str
@@ -284,7 +286,7 @@ class AddressCreateSchema(BaseModel):
     city: str
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class AddressUpdateSchema(BaseModel):
@@ -372,7 +374,7 @@ class Education(EducationBase):
     expert_id: int
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class WorkExperienceBase(BaseModel):
@@ -392,7 +394,7 @@ class WorkExperience(WorkExperienceBase):
     expert_id: int
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class ExpertBase(BaseModel):
@@ -413,7 +415,7 @@ class ExpertList(ExpertBase):
     id: int
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class ExpertDetail(ExpertBase):
@@ -424,7 +426,7 @@ class ExpertDetail(ExpertBase):
     updated_at: datetime
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class CollaborationRequestBase(BaseModel):
@@ -446,7 +448,7 @@ class CollaborationRequest(CollaborationRequestBase):
     status: str
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class ExpertFilter(BaseModel):
@@ -729,7 +731,7 @@ class EventProgram(EventProgramBase):
     event_id: int
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 # Speaker schemas
@@ -753,7 +755,7 @@ class EventSpeaker(EventSpeakerBase):
     event_id: int
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 # Participant schemas
@@ -775,7 +777,7 @@ class EventParticipant(EventParticipantBase):
     created_at: datetime
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 # Event schemas
@@ -798,7 +800,7 @@ class EventList(EventBase):
     created_at: datetime
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class EventDetail(EventBase):
@@ -816,7 +818,7 @@ class EventDetail(EventBase):
     is_admin_created: bool = False
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class EventUpdate(BaseModel):
@@ -828,7 +830,7 @@ class EventUpdate(BaseModel):
     event_photo: Optional[str] = None
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class EventFilter(BaseModel):
@@ -885,7 +887,7 @@ class CourseCategory(CourseCategoryBase):
     id: int
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 # Ответы на тесты
@@ -903,7 +905,7 @@ class CourseTestAnswer(CourseTestAnswerBase):
     test_id: int
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 # Тесты
@@ -922,7 +924,7 @@ class CourseTest(CourseTestBase):
     answers: List[CourseTestAnswer]
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 # Уроки
@@ -943,7 +945,7 @@ class CourseLesson(CourseLessonBase):
     tests: List[CourseTest] = []
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 # Главы курса
@@ -966,7 +968,7 @@ class CourseChapter(CourseChapterBase):
     lessons: List[CourseLesson] = []
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 # Базовая схема курса
@@ -1061,7 +1063,7 @@ class CourseList(BaseModel):
     created_at: datetime
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 # Схема для подробного отображения курса
@@ -1081,7 +1083,7 @@ class CourseDetail(CourseList):
     is_admin_created: bool = False
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 # Схема для записи на курс
@@ -1101,7 +1103,7 @@ class CourseEnrollment(BaseModel):
     completed_lessons: List[int] = []  # Добавляем это поле
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 # Схема для фильтрации курсов
@@ -1128,7 +1130,7 @@ class CourseEnrollmentWithCourse(BaseModel):
     course: CourseList  # Включаем полную информацию о курсе
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 
@@ -1169,7 +1171,7 @@ class Certificate(CertificateBase):
     updated_at: datetime
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 # Схема для фильтрации сертификатов
 class CertificateFilter(BaseModel):
