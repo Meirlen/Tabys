@@ -1201,6 +1201,7 @@ class RoleEnum(str, Enum):
 class AdminBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=100, description="Имя администратора")
     login: str = Field(..., min_length=3, max_length=50, description="Логин администратора")
+    email: Optional[str] = Field(None, description="Email для уведомлений")
 
 class AdminRegister(AdminBase):
     password: str = Field(..., min_length=6, max_length=100, description="Пароль администратора")
@@ -1212,6 +1213,7 @@ class AdminLogin(BaseModel):
 
 class AdminResponse(AdminBase):
     id: int
+    email: Optional[str] = None
     role: Optional[str] = None
     created_at: datetime
     approval_status: str = "pending"
@@ -1231,6 +1233,10 @@ class AdminChangePassword(BaseModel):
     old_password: str = Field(..., description="Текущий пароль")
     new_password: str = Field(..., min_length=6, max_length=100, description="Новый пароль")
 
+class AdminProfileUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=100, description="Имя администратора")
+    email: Optional[str] = Field(None, description="Email для уведомлений")
+
 class AdminApprovalUpdate(BaseModel):
     approval_status: str = Field(..., description="Status: approved or rejected")
     approval_reason: Optional[str] = Field(None, description="Optional reason for the decision")
@@ -1243,6 +1249,7 @@ class AdminProfileResponse(BaseModel):
     id: int
     name: str
     login: str
+    email: Optional[str] = None
     role: Optional[str] = None
     created_at: datetime
     approval_status: str = "pending"

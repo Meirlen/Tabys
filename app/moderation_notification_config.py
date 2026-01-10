@@ -11,7 +11,7 @@ MODERATION_CHECK_INTERVAL_MINUTES: int = 1
 
 # CRM URL for moderation page
 # This URL will be used in the inline keyboard button
-CRM_MODERATION_URL: str = "https://soft09.tech/kz/admin/moderation"
+CRM_MODERATION_URL: str = "https://js-crm-new.vercel.app/kz/admin/dashboard"
 
 # Notification message template (supports Kazakh and Russian)
 NOTIFICATION_MESSAGE_KZ = """🚨 Жаңа модерация өтінімдері

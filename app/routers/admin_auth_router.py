@@ -195,8 +195,43 @@ def get_admin_profile(db: Session = Depends(get_db), current_admin: models.Admin
         "id": current_admin.id,
         "name": current_admin.name,
         "login": current_admin.login,
-        "role": current_admin.role,  # ДОБАВЛЕНО: отправляем роль
+        "email": current_admin.email,  # Email для уведомлений
+        "role": current_admin.role,
         "created_at": current_admin.created_at
+    }
+
+
+@router.put("/profile")
+def update_admin_profile(
+        profile_data: schemas.AdminProfileUpdate,
+        db: Session = Depends(get_db),
+        current_admin: models.Admin = Depends(oauth2.get_current_admin)
+):
+    """
+    Обновление профиля администратора (имя, email)
+    """
+    # Update name if provided
+    if profile_data.name is not None and profile_data.name.strip():
+        current_admin.name = profile_data.name.strip()
+
+    # Update email if provided
+    if profile_data.email is not None:
+        # Allow empty string to clear email
+        current_admin.email = profile_data.email.strip() if profile_data.email.strip() else None
+
+    db.commit()
+    db.refresh(current_admin)
+
+    return {
+        "message": "Профиль успешно обновлен",
+        "admin": {
+            "id": current_admin.id,
+            "name": current_admin.name,
+            "login": current_admin.login,
+            "email": current_admin.email,
+            "role": current_admin.role,
+            "created_at": current_admin.created_at
+        }
     }
 
 

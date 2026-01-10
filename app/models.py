@@ -618,6 +618,7 @@ class Admin(Base):
     id = Column(Integer, primary_key=True, nullable=False)
     name = Column(String, nullable=False)
     login = Column(String, nullable=True)
+    email = Column(String, nullable=True)  # Email for notifications
     role = Column(String, nullable=True)  # Will be migrated to Enum in database
     password = Column(String, nullable=True)
     created_at = Column(TIMESTAMP(timezone=True),

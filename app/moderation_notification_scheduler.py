@@ -26,6 +26,7 @@ from app.moderation_notification_config import (
     BUTTON_TEXT
 )
 from config import get_settings
+from app.email_service import email_service, create_moderation_notification_email
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -74,6 +75,81 @@ def get_total_pending_count(db: Session) -> int:
             logger.error(f"Error counting pending items for {model_class.__name__}: {str(e)}")
 
     return total_pending
+
+
+def get_admin_emails(db: Session) -> list:
+    """
+    Get email addresses of all administrators and super_admins
+
+    Args:
+        db: Database session
+
+    Returns:
+        list: List of email addresses (only admins with email field populated)
+    """
+    try:
+        # Query admins and super_admins who have email addresses
+        admins = db.query(models.Admin).filter(
+            models.Admin.role.in_(['administrator', 'super_admin']),
+            models.Admin.email.isnot(None),
+            models.Admin.email != ''
+        ).all()
+
+        # Extract email addresses
+        emails = [admin.email for admin in admins if admin.email and admin.email.strip()]
+
+        logger.info(f"Found {len(emails)} admin email addresses for notifications")
+        return emails
+
+    except Exception as e:
+        logger.error(f"Error fetching admin emails: {str(e)}")
+        return []
+
+
+async def send_email_notifications(pending_count: int, db: Session) -> bool:
+    """
+    Send email notifications to all administrators and super_admins
+
+    Args:
+        pending_count: Number of pending moderation items
+        db: Database session
+
+    Returns:
+        bool: True if at least one email sent successfully
+    """
+    try:
+        # Get admin email addresses
+        admin_emails = get_admin_emails(db)
+
+        if not admin_emails:
+            logger.warning("No admin emails found for email notifications")
+            return False
+
+        # Create email content
+        html_body, text_body = create_moderation_notification_email(
+            pending_count,
+            CRM_MODERATION_URL
+        )
+
+        # Send emails
+        result = email_service.send_bulk_emails(
+            recipients=admin_emails,
+            subject=BROADCAST_TITLE,
+            body_html=html_body,
+            body_text=text_body
+        )
+
+        logger.info(
+            f"Email notification result: {result['sent']} sent, "
+            f"{result['failed']} failed"
+        )
+
+        # Return True if at least one email was sent
+        return result['sent'] > 0
+
+    except Exception as e:
+        logger.error(f"Failed to send email notifications: {str(e)}")
+        return False
 
 
 async def send_broadcast_via_api(broadcast_id: int, db: Session) -> bool:
@@ -181,12 +257,13 @@ def create_moderation_notification_broadcast(db: Session, pending_count: int) ->
 async def check_and_notify_moderation(db: Session) -> bool:
     """
     Check moderation queue and send notification if new items detected
+    Sends both Telegram and email notifications
 
     Args:
         db: Database session
 
     Returns:
-        bool: True if notification was sent
+        bool: True if at least one notification was sent
     """
     try:
         # Get current pending count
@@ -202,24 +279,49 @@ async def check_and_notify_moderation(db: Session) -> bool:
 
         logger.info(f"New moderation items detected: {current_pending} pending (was {state.last_pending_count})")
 
-        # Create broadcast
-        broadcast_id = create_moderation_notification_broadcast(db, current_pending)
+        # Track if any notification method succeeded
+        telegram_success = False
+        email_success = False
 
-        if not broadcast_id:
-            logger.error("Failed to create broadcast")
-            return False
+        # Send Telegram notification
+        try:
+            # Create broadcast
+            broadcast_id = create_moderation_notification_broadcast(db, current_pending)
 
-        # Send broadcast via API (pass db session)
-        send_success = await send_broadcast_via_api(broadcast_id, db)
+            if broadcast_id:
+                # Send broadcast via API (pass db session)
+                telegram_success = await send_broadcast_via_api(broadcast_id, db)
+                if telegram_success:
+                    logger.info(f"Telegram notification sent successfully (broadcast ID={broadcast_id})")
+                else:
+                    logger.error("Failed to send Telegram broadcast")
+            else:
+                logger.error("Failed to create Telegram broadcast")
+        except Exception as e:
+            logger.error(f"Error sending Telegram notification: {str(e)}")
 
-        if send_success:
-            # Update state
+        # Send email notification
+        try:
+            email_success = await send_email_notifications(current_pending, db)
+            if email_success:
+                logger.info("Email notifications sent successfully")
+            else:
+                logger.warning("Failed to send email notifications (no emails sent)")
+        except Exception as e:
+            logger.error(f"Error sending email notifications: {str(e)}")
+
+        # Update state if at least one notification method succeeded
+        if telegram_success or email_success:
             state.mark_notified(current_pending)
             db.commit()
-            logger.info(f"Moderation notification sent successfully (broadcast ID={broadcast_id})")
+            logger.info(
+                f"Moderation notification complete: "
+                f"Telegram={'✓' if telegram_success else '✗'}, "
+                f"Email={'✓' if email_success else '✗'}"
+            )
             return True
         else:
-            logger.error("Failed to send broadcast")
+            logger.error("All notification methods failed")
             return False
 
     except Exception as e:

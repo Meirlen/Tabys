@@ -16,6 +16,13 @@ class Settings(BaseSettings):
     MOBIZON_API_KEY: str
     telegram_bot_token: str = ""  # Optional: for broadcast messaging
 
+    # Gmail SMTP configuration for email notifications
+    GMAIL_SMTP_SERVER: str = "smtp.gmail.com"
+    GMAIL_SMTP_PORT: int = 587
+    GMAIL_USERNAME: str = ""  # Gmail account to send from
+    GMAIL_APP_PASSWORD: str = ""  # Gmail app-specific password
+    GMAIL_FROM_NAME: str = "SARYARQA JASTARY"  # Sender name in emails
+
     class Config:
         env_file = ".env"
         extra = "ignore"  # Игнорировать дополнительные поля
