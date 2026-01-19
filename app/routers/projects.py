@@ -1803,7 +1803,7 @@ def admin_delete_project(
     db: Session = Depends(get_db),
     current_admin: models.Admin = Depends(require_permission(Module.PROJECTS, Permission.DELETE))
 ):
-    """Admin: Delete project with ownership check"""
+    """Admin: Delete project with ownership check and cascading deletes"""
     # Get existing project
     query = db.query(Project).filter(Project.id == project_id)
 
@@ -1817,6 +1817,46 @@ def admin_delete_project(
             detail="Проект не найден или у вас нет прав на его удаление"
         )
 
+    # Delete related records first to avoid foreign key constraint violations
+
+    # 1. Delete form submissions
+    db.query(ProjectFormSubmission).filter(
+        ProjectFormSubmission.project_id == project_id
+    ).delete(synchronize_session=False)
+
+    # 2. Delete form templates
+    db.query(ProjectFormTemplate).filter(
+        ProjectFormTemplate.project_id == project_id
+    ).delete(synchronize_session=False)
+
+    # 3. Delete voting participants and their votes
+    participant_ids = [p.id for p in db.query(VotingParticipant).filter(
+        VotingParticipant.project_id == project_id
+    ).all()]
+
+    if participant_ids:
+        db.query(Vote).filter(Vote.participant_id.in_(participant_ids)).delete(synchronize_session=False)
+
+    db.query(VotingParticipant).filter(
+        VotingParticipant.project_id == project_id
+    ).delete(synchronize_session=False)
+
+    # 4. Delete project applications
+    db.query(ProjectApplication).filter(
+        ProjectApplication.project_id == project_id
+    ).delete(synchronize_session=False)
+
+    # 5. Delete voting results
+    db.query(VotingResults).filter(
+        VotingResults.project_id == project_id
+    ).delete(synchronize_session=False)
+
+    # 6. Delete gallery images
+    db.query(ProjectGallery).filter(
+        ProjectGallery.project_id == project_id
+    ).delete(synchronize_session=False)
+
+    # 7. Finally, delete the project itself
     db.delete(existing_project)
     db.commit()
 
