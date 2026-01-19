@@ -1,9 +1,10 @@
 from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
+from fastapi.security import OAuth2PasswordBearer, HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 from typing import Optional
+from fastapi import Depends, Header
 from app.database import get_db
 from app import models, schemas
 import os
@@ -69,6 +70,37 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         raise credentials_exception
 
     return user
+
+
+def optional_get_current_user(
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db)
+):
+    """
+    Получает текущего пользователя на основе токена, но не требует обязательной аутентификации.
+    Возвращает None если токен отсутствует или недействителен.
+    """
+    try:
+        if not authorization:
+            return None
+        
+        # Extract token from "Bearer <token>" format
+        if authorization.startswith("Bearer "):
+            token = authorization.replace("Bearer ", "")
+        else:
+            token = authorization
+        
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        id: str = payload.get("user_id")
+
+        if id is None:
+            return None
+
+        user = db.query(models.User).filter(models.User.id == id).first()
+        return user
+
+    except (JWTError, Exception):
+        return None
 
 
 def get_expert_user(current_user=Depends(get_current_user), db: Session = Depends(get_db)):

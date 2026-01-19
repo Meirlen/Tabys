@@ -508,7 +508,7 @@ async def process_broadcast_deliveries(broadcast_id: int):
     settings = get_settings()
     logger = logging.getLogger(__name__)
     logger.info(f"Starting broadcast delivery for broadcast_id: {broadcast_id}")
-    
+
     db = SessionLocal()
 
     try:

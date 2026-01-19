@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 
 router = APIRouter(prefix="/api/v2/leisure", tags=["Досуг"])
 
-BASE_URL = "https://aisoft09.shop"
+BASE_URL = "https://api.saryarqa-jastary.kz"
 
 
 # === ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ===

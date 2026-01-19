@@ -6,10 +6,14 @@ from app.database import get_db
 from app import oauth2
 from app.project_models import (
     Project, ProjectGallery, VotingParticipant, Vote,
-    ProjectApplication, VotingResults,  ProjectStatusEnum
+    ProjectApplication, VotingResults,  ProjectStatusEnum,
+    ProjectFormTemplate, ProjectFormSubmission
 )
 from app.project_schemas import (
-    ProjectCreate, ProjectUpdate, VotingParticipantCreate, ProjectApplicationCreate, ProjectResponse
+    ProjectCreate, ProjectUpdate, VotingParticipantCreate, ProjectApplicationCreate, ProjectResponse,
+    FormTemplateCreate, FormTemplateUpdate, FormTemplateResponse,
+    FormSubmissionCreate, FormSubmissionUpdate, FormSubmissionResponse,
+    FormSubmissionListResponse, FormAnalyticsResponse, FormField
 )
 from app.schemas import ModerationStats, ModerationStatus
 from typing import List, Optional
@@ -20,7 +24,7 @@ from datetime import datetime
 router = APIRouter(prefix="/api/v2/projects", tags=["Projects"])
 
 # Константа для базового URL
-BASE_URL = "https://aisoft09.shop"
+BASE_URL = "https://api.saryarqa-jastary.kz"
 
 def get_full_url(path: Optional[str]) -> Optional[str]:
     """
@@ -1775,8 +1779,7 @@ def admin_update_project(
         existing_project.description_ru = project_data.description_ru
     if project_data.author is not None:
         existing_project.author = project_data.author
-    if project_data.project_type is not None:
-        existing_project.project_type = project_data.project_type
+    # Note: project_type is not editable after creation - removed from update logic
     if project_data.status is not None:
         existing_project.status = project_data.status
     if project_data.start_date is not None:
@@ -1955,3 +1958,654 @@ def reject_project(
     db.commit()
     db.refresh(project)
     return project
+
+
+# ===== FORM BUILDER ENDPOINTS =====
+
+# --- Admin Form Template CRUD ---
+
+@router.post("/{project_id}/form-template", response_model=FormTemplateResponse, status_code=status.HTTP_201_CREATED)
+def create_form_template(
+    project_id: int,
+    form_data: FormTemplateCreate,
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_permission(Module.PROJECTS, Permission.CREATE))
+):
+    """
+    Admin: Create a custom form template for an application project.
+    Only the project owner or super_admin can create forms.
+    """
+    # Verify project exists and is of type 'application'
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+    
+    if project.project_type != "application":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Form templates can only be created for application projects"
+        )
+    
+    # Check ownership (NPO/MSB can only edit their own projects)
+    if current_admin.role not in ['administrator', 'super_admin']:
+        if project.admin_id != current_admin.id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You don't have permission to manage this project")
+    
+    # Check if template already exists
+    existing_template = db.query(ProjectFormTemplate).filter(
+        ProjectFormTemplate.project_id == project_id
+    ).first()
+    
+    if existing_template:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Form template already exists for this project. Use PUT to update."
+        )
+    
+    # Convert fields to dict format for JSONB storage
+    fields_data = [field.dict() for field in form_data.fields]
+    
+    # Create template
+    template = ProjectFormTemplate(
+        project_id=project_id,
+        title_kz=form_data.title_kz,
+        title_ru=form_data.title_ru,
+        description_kz=form_data.description_kz,
+        description_ru=form_data.description_ru,
+        fields=fields_data,
+        is_active=True
+    )
+    
+    db.add(template)
+    db.commit()
+    db.refresh(template)
+    
+    return template
+
+
+@router.get("/{project_id}/form-template", response_model=FormTemplateResponse)
+def get_form_template(
+    project_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Public: Get form template for a project. Anyone can view to fill out the form.
+    """
+    template = db.query(ProjectFormTemplate).filter(
+        ProjectFormTemplate.project_id == project_id,
+        ProjectFormTemplate.is_active == True
+    ).first()
+    
+    if not template:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Form template not found for this project"
+        )
+    
+    return template
+
+
+@router.put("/{project_id}/form-template", response_model=FormTemplateResponse)
+def update_form_template(
+    project_id: int,
+    form_data: FormTemplateUpdate,
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_permission(Module.PROJECTS, Permission.UPDATE))
+):
+    """
+    Admin: Update form template. Only project owner or super_admin can update.
+    """
+    # Verify project ownership
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+    
+    # Check ownership
+    if current_admin.role not in ['administrator', 'super_admin']:
+        if project.admin_id != current_admin.id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You don't have permission to manage this project")
+    
+    # Get template
+    template = db.query(ProjectFormTemplate).filter(
+        ProjectFormTemplate.project_id == project_id
+    ).first()
+    
+    if not template:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Form template not found"
+        )
+    
+    # Update fields
+    if form_data.title_kz is not None:
+        template.title_kz = form_data.title_kz
+    if form_data.title_ru is not None:
+        template.title_ru = form_data.title_ru
+    if form_data.description_kz is not None:
+        template.description_kz = form_data.description_kz
+    if form_data.description_ru is not None:
+        template.description_ru = form_data.description_ru
+    if form_data.fields is not None:
+        template.fields = [field.dict() for field in form_data.fields]
+    if form_data.is_active is not None:
+        template.is_active = form_data.is_active
+    
+    db.commit()
+    db.refresh(template)
+    
+    return template
+
+
+@router.delete("/{project_id}/form-template", status_code=status.HTTP_204_NO_CONTENT)
+def delete_form_template(
+    project_id: int,
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_permission(Module.PROJECTS, Permission.DELETE))
+):
+    """
+    Admin: Delete form template. Only project owner or super_admin can delete.
+    """
+    # Verify project ownership
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+    
+    # Check ownership
+    if current_admin.role not in ['administrator', 'super_admin']:
+        if project.admin_id != current_admin.id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You don't have permission to manage this project")
+    
+    # Get template
+    template = db.query(ProjectFormTemplate).filter(
+        ProjectFormTemplate.project_id == project_id
+    ).first()
+    
+    if not template:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Form template not found"
+        )
+    
+    db.delete(template)
+    db.commit()
+    
+    return None
+
+
+# --- Public Form Submission ---
+
+@router.post("/{project_id}/form/submit", response_model=FormSubmissionResponse, status_code=status.HTTP_201_CREATED)
+def submit_form(
+    project_id: int,
+    submission_data: FormSubmissionCreate,
+    db: Session = Depends(get_db),
+    current_user = Depends(oauth2.optional_get_current_user)  # Optional auth
+):
+    """
+    Public: Submit a form response. Authentication is optional.
+    """
+    # Verify project exists and is active
+    project = db.query(Project).filter(
+        Project.id == project_id,
+        Project.project_type == "application"
+    ).first()
+    
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found or not an application project"
+        )
+    
+    # Check if project is active
+    now = datetime.utcnow()
+    if project.status != "active":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Project is not currently accepting applications"
+        )
+    
+    if now < project.start_date or now > project.end_date:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Project is not in active period"
+        )
+    
+    # Get form template
+    template = db.query(ProjectFormTemplate).filter(
+        ProjectFormTemplate.project_id == project_id,
+        ProjectFormTemplate.is_active == True
+    ).first()
+    
+    if not template:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Form template not found"
+        )
+    
+    # Validate responses match template fields (basic validation)
+    template_field_ids = {field['id'] for field in template.fields}
+    response_field_ids = set(submission_data.responses.keys())
+    
+    # Check required fields
+    required_field_ids = {field['id'] for field in template.fields if field.get('required', False)}
+    missing_required = required_field_ids - response_field_ids
+    if missing_required:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Missing required fields: {missing_required}"
+        )
+    
+    # Create submission
+    user_id = current_user.id if current_user else None
+    
+    submission = ProjectFormSubmission(
+        project_id=project_id,
+        form_template_id=template.id,
+        user_id=user_id,
+        phone_number=submission_data.phone_number,
+        email=submission_data.email,
+        applicant_name=submission_data.applicant_name,
+        responses=submission_data.responses,
+        status="pending"
+    )
+    
+    db.add(submission)
+    db.commit()
+    db.refresh(submission)
+    
+    return submission
+
+
+# --- Admin Submission Management ---
+
+@router.get("/{project_id}/submissions", response_model=FormSubmissionListResponse)
+def get_submissions(
+    project_id: int,
+    status: Optional[str] = None,
+    skip: int = 0,
+    limit: int = 50,
+    search: Optional[str] = None,
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_permission(Module.PROJECTS, Permission.READ))
+):
+    """
+    Admin: Get list of form submissions with filtering and pagination.
+    Only project owner or super_admin can view submissions.
+    """
+    # Verify project ownership
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+    
+    # Check ownership
+    if current_admin.role not in ['administrator', 'super_admin']:
+        if project.admin_id != current_admin.id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You don't have permission to view submissions for this project")
+    
+    # Build query
+    query = db.query(ProjectFormSubmission).filter(
+        ProjectFormSubmission.project_id == project_id
+    )
+    
+    # Apply filters
+    if status:
+        query = query.filter(ProjectFormSubmission.status == status)
+    
+    if start_date:
+        query = query.filter(ProjectFormSubmission.submitted_at >= start_date)
+    
+    if end_date:
+        query = query.filter(ProjectFormSubmission.submitted_at <= end_date)
+    
+    if search:
+        # Search in name, phone, email
+        search_pattern = f"%{search}%"
+        query = query.filter(
+            (ProjectFormSubmission.applicant_name.ilike(search_pattern)) |
+            (ProjectFormSubmission.phone_number.ilike(search_pattern)) |
+            (ProjectFormSubmission.email.ilike(search_pattern))
+        )
+    
+    # Get total count
+    total = query.count()
+    
+    # Get paginated results
+    submissions = query.order_by(desc(ProjectFormSubmission.submitted_at)).offset(skip).limit(limit).all()
+    
+    return {
+        "total": total,
+        "page": skip // limit + 1 if limit > 0 else 1,
+        "page_size": limit,
+        "submissions": submissions
+    }
+
+
+@router.get("/{project_id}/submissions/{submission_id}", response_model=FormSubmissionResponse)
+def get_submission_detail(
+    project_id: int,
+    submission_id: int,
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_permission(Module.PROJECTS, Permission.READ))
+):
+    """
+    Admin: Get detailed view of a single submission.
+    """
+    # Verify project ownership
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+    
+    # Check ownership
+    if current_admin.role not in ['administrator', 'super_admin']:
+        if project.admin_id != current_admin.id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You don't have permission to view this submission")
+    
+    # Get submission
+    submission = db.query(ProjectFormSubmission).filter(
+        ProjectFormSubmission.id == submission_id,
+        ProjectFormSubmission.project_id == project_id
+    ).first()
+    
+    if not submission:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Submission not found"
+        )
+    
+    return submission
+
+
+@router.put("/{project_id}/submissions/{submission_id}/status", response_model=FormSubmissionResponse)
+def update_submission_status(
+    project_id: int,
+    submission_id: int,
+    status_data: FormSubmissionUpdate,
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_permission(Module.PROJECTS, Permission.UPDATE))
+):
+    """
+    Admin: Approve or reject a submission.
+    """
+    # Verify project ownership
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+    
+    # Check ownership
+    if current_admin.role not in ['administrator', 'super_admin']:
+        if project.admin_id != current_admin.id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You don't have permission to update this submission")
+    
+    # Get submission
+    submission = db.query(ProjectFormSubmission).filter(
+        ProjectFormSubmission.id == submission_id,
+        ProjectFormSubmission.project_id == project_id
+    ).first()
+    
+    if not submission:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Submission not found"
+        )
+    
+    # Update status
+    if status_data.status:
+        submission.status = status_data.status
+        submission.reviewed_by = current_admin.id
+        submission.reviewed_at = datetime.utcnow()
+    
+    if status_data.admin_comment is not None:
+        submission.admin_comment = status_data.admin_comment
+    
+    db.commit()
+    db.refresh(submission)
+    
+    return submission
+
+
+# --- Analytics & Export ---
+
+@router.get("/{project_id}/analytics", response_model=FormAnalyticsResponse)
+def get_form_analytics(
+    project_id: int,
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_permission(Module.PROJECTS, Permission.READ))
+):
+    """
+    Admin: Get analytics and statistics for form submissions.
+    """
+    # Verify project ownership
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+    
+    # Check ownership
+    if current_admin.role not in ['administrator', 'super_admin']:
+        if project.admin_id != current_admin.id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You don't have permission to view analytics for this project")
+    
+    # Get all submissions for this project
+    submissions = db.query(ProjectFormSubmission).filter(
+        ProjectFormSubmission.project_id == project_id
+    ).all()
+    
+    total_submissions = len(submissions)
+    pending_count = len([s for s in submissions if s.status == "pending"])
+    approved_count = len([s for s in submissions if s.status == "approved"])
+    rejected_count = len([s for s in submissions if s.status == "rejected"])
+    
+    # Submissions over time (group by date)
+    from collections import defaultdict
+    submissions_by_date = defaultdict(int)
+    for sub in submissions:
+        date_str = sub.submitted_at.strftime("%Y-%m-%d")
+        submissions_by_date[date_str] += 1
+    
+    submissions_over_time = [
+        {"date": date, "count": count}
+        for date, count in sorted(submissions_by_date.items())
+    ]
+    
+    # Field statistics (aggregate responses for dropdown/radio/checkbox fields)
+    template = db.query(ProjectFormTemplate).filter(
+        ProjectFormTemplate.project_id == project_id
+    ).first()
+    
+    field_statistics = {}
+    if template:
+        for field in template.fields:
+            field_id = field['id']
+            field_type = field['type']
+            
+            # Only calculate stats for categorical fields
+            if field_type in ['dropdown', 'radio', 'checkbox', 'rating']:
+                responses_for_field = []
+                for sub in submissions:
+                    if field_id in sub.responses:
+                        value = sub.responses[field_id]
+                        if isinstance(value, list):
+                            responses_for_field.extend(value)
+                        else:
+                            responses_for_field.append(value)
+                
+                # Count occurrences
+                from collections import Counter
+                value_counts = Counter(responses_for_field)
+                field_statistics[field_id] = {
+                    "field_label_kz": field.get('label_kz', ''),
+                    "field_label_ru": field.get('label_ru', ''),
+                    "type": field_type,
+                    "value_counts": dict(value_counts)
+                }
+    
+    # Calculate average submissions per day
+    if submissions:
+        first_submission = min(s.submitted_at for s in submissions)
+        days_active = (datetime.utcnow() - first_submission).days + 1
+        avg_per_day = total_submissions / days_active if days_active > 0 else 0
+    else:
+        avg_per_day = 0.0
+    
+    return {
+        "total_submissions": total_submissions,
+        "pending_count": pending_count,
+        "approved_count": approved_count,
+        "rejected_count": rejected_count,
+        "submissions_over_time": submissions_over_time,
+        "field_statistics": field_statistics,
+        "avg_submissions_per_day": round(avg_per_day, 2)
+    }
+
+
+@router.post("/{project_id}/submissions/export")
+def export_submissions(
+    project_id: int,
+    format: str = "csv",  # csv or excel
+    status: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_permission(Module.PROJECTS, Permission.READ))
+):
+    """
+    Admin: Export submissions to CSV or Excel format.
+    """
+    import csv
+    import io
+    from fastapi.responses import StreamingResponse
+    
+    # Verify project ownership
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+    
+    # Check ownership
+    if current_admin.role not in ['administrator', 'super_admin']:
+        if project.admin_id != current_admin.id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You don't have permission to export submissions")
+    
+    # Get submissions
+    query = db.query(ProjectFormSubmission).filter(
+        ProjectFormSubmission.project_id == project_id
+    )
+    
+    if status:
+        query = query.filter(ProjectFormSubmission.status == status)
+    
+    submissions = query.order_by(desc(ProjectFormSubmission.submitted_at)).all()
+    
+    # Get form template for field labels
+    template = db.query(ProjectFormTemplate).filter(
+        ProjectFormTemplate.project_id == project_id
+    ).first()
+    
+    if not template or not submissions:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No data to export"
+        )
+    
+    # Prepare CSV
+    output = io.StringIO()
+    
+    # Build header row
+    header = ["ID", "Submission Date", "Name", "Phone", "Email", "Status", "Admin Comment"]
+    
+    # Add field labels
+    for field in template.fields:
+        label = field.get('label_ru', field.get('label_kz', field['id']))
+        header.append(label)
+    
+    writer = csv.writer(output)
+    writer.writerow(header)
+    
+    # Write data rows
+    for sub in submissions:
+        row = [
+            sub.id,
+            sub.submitted_at.strftime("%Y-%m-%d %H:%M:%S"),
+            sub.applicant_name or "",
+            sub.phone_number,
+            sub.email or "",
+            sub.status,
+            sub.admin_comment or ""
+        ]
+        
+        # Add responses
+        for field in template.fields:
+            field_id = field['id']
+            value = sub.responses.get(field_id, "")
+            # Convert lists to comma-separated string
+            if isinstance(value, list):
+                value = ", ".join(str(v) for v in value)
+            row.append(value)
+        
+        writer.writerow(row)
+    
+    # Prepare response
+    output.seek(0)
+    
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=project_{project_id}_submissions.csv"}
+    )
+
+
+# --- File Upload for Form Fields ---
+
+@router.post("/{project_id}/form/upload-file")
+async def upload_form_field_file(
+    project_id: int,
+    field_id: str = Form(...),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db)
+):
+    """
+    Public: Upload a file for a form field. Returns file URL to include in submission.
+    """
+    # Validate file size (10MB max)
+    MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB in bytes
+    
+    # Read file content
+    file_content = await file.read()
+    file_size = len(file_content)
+    
+    if file_size > MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"File too large. Maximum size is 10MB."
+        )
+    
+    # Validate file type (whitelist)
+    allowed_extensions = {'.pdf', '.doc', '.docx', '.jpg', '.jpeg', '.png', '.txt'}
+    file_ext = os.path.splitext(file.filename)[1].lower()
+    
+    if file_ext not in allowed_extensions:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"File type not allowed. Allowed: {', '.join(allowed_extensions)}"
+        )
+    
+    # Generate unique filename
+    unique_filename = f"{uuid.uuid4()}{file_ext}"
+    
+    # Create directory structure
+    upload_dir = f"uploads/forms/project_{project_id}"
+    os.makedirs(upload_dir, exist_ok=True)
+    
+    # Save file
+    file_path = os.path.join(upload_dir, unique_filename)
+    
+    with open(file_path, "wb") as f:
+        f.write(file_content)
+    
+    # Return URL
+    file_url = f"/{file_path}"
+    
+    return {
+        "file_url": get_full_url(file_url),
+        "field_id": field_id,
+        "filename": file.filename,
+        "size": file_size
+    }

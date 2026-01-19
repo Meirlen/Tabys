@@ -1,5 +1,6 @@
 from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, Date, ForeignKey, Enum
 from sqlalchemy.sql import func
+from sqlalchemy.dialects.postgresql import JSONB
 from datetime import datetime
 import enum
 from app.database import Base
@@ -134,3 +135,64 @@ class VotingResults(Base):
     percentage = Column(String(10), nullable=True)  # Процент от общего числа голосов
     position = Column(Integer, nullable=True)  # Место в рейтинге
     calculated_at = Column(DateTime, default=func.now())
+
+
+# Custom Form Templates for Application Projects
+class ProjectFormTemplate(Base):
+    __tablename__ = "project_form_templates"
+
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("projects_multi_2.id"), unique=True, nullable=False, index=True)
+    
+    # Multilingual titles and descriptions
+    title_kz = Column(String(255), nullable=False)
+    title_ru = Column(String(255), nullable=False)
+    description_kz = Column(Text, nullable=True)
+    description_ru = Column(Text, nullable=True)
+    
+    # Form field definitions stored as JSONB array
+    # Structure: [{"id": "uuid", "type": "text|textarea|dropdown|...", "label_kz": "...", "label_ru": "...", ...}]
+    fields = Column(JSONB, nullable=False, default=list)
+    
+    # Status
+    is_active = Column(Boolean, default=True, nullable=False)
+    
+    # Timestamps
+    created_at = Column(DateTime, default=func.now(), nullable=False)
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now(), nullable=False)
+
+
+# Form Submissions from Participants
+class ProjectFormSubmission(Base):
+    __tablename__ = "project_form_submissions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("projects_multi_2.id"), nullable=False, index=True)
+    form_template_id = Column(Integer, ForeignKey("project_form_templates.id"), nullable=False)
+    
+    # Submitter information
+    user_id = Column(Integer, ForeignKey("users_2026_12.id"), nullable=True)  # If authenticated
+    phone_number = Column(String(20), nullable=False)
+    email = Column(String(255), nullable=True)
+    applicant_name = Column(String(255), nullable=True)
+    
+    # Form responses stored as JSONB
+    # Structure: {"field_uuid_1": "response", "field_uuid_2": ["multiple", "values"], ...}
+    responses = Column(JSONB, nullable=False, default=dict)
+    
+    # Submission status
+    status = Column(String(50), default="pending", nullable=False, index=True)  # pending, approved, rejected
+    admin_comment = Column(Text, nullable=True)
+    
+    # Review tracking
+    reviewed_by = Column(Integer, ForeignKey("adminstrators_shaqyru1.id"), nullable=True)
+    reviewed_at = Column(DateTime, nullable=True)
+    
+    # Timestamps
+    submitted_at = Column(DateTime, default=func.now(), nullable=False, index=True)
+    
+    class Config:
+        indexes = [
+            {'fields': ['project_id', 'status']},
+            {'fields': ['project_id', 'submitted_at']},
+        ]
