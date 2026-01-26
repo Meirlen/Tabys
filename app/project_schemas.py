@@ -127,6 +127,7 @@ class FormFieldValidation(BaseModel):
 class FormFieldFileConfig(BaseModel):
     accept: str = ".pdf,.doc,.docx,.jpg,.jpeg,.png"
     max_size_mb: int = 10
+    reference_file_url: Optional[str] = None
 
 
 class FormField(BaseModel):
@@ -136,6 +137,8 @@ class FormField(BaseModel):
     label_ru: str
     placeholder_kz: Optional[str] = None
     placeholder_ru: Optional[str] = None
+    hint_kz: Optional[str] = None  # Hint text for file upload fields
+    hint_ru: Optional[str] = None  # Hint text for file upload fields
     required: bool = False
     order: int = 0
     options: Optional[List[str]] = None  # For dropdown/radio/checkbox
