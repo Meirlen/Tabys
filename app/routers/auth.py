@@ -369,6 +369,56 @@ async def upload_photo(file: UploadFile = File(...)):
     return {"file_path": f"/{file_path}"}
 
 
+# Загрузка документа (шаблоны, .docx, .doc, .pdf и т.д.)
+@router.post("/upload-document")
+async def upload_document(file: UploadFile = File(...)):
+    """
+    Загружает документ на сервер (поддерживает .docx, .doc, .pdf, .xlsx, .xls и изображения)
+    """
+    # Разрешенные MIME-типы
+    allowed_types = [
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',  # .docx
+        'application/msword',  # .doc
+        'application/pdf',  # .pdf
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',  # .xlsx
+        'application/vnd.ms-excel',  # .xls
+        'image/jpeg',
+        'image/png',
+        'image/gif',
+        'image/webp',
+    ]
+
+    # Разрешенные расширения
+    allowed_extensions = ['.docx', '.doc', '.pdf', '.xlsx', '.xls', '.jpg', '.jpeg', '.png', '.gif', '.webp']
+
+    # Получаем расширение файла
+    file_extension = ''
+    if file.filename and '.' in file.filename:
+        file_extension = '.' + file.filename.split('.')[-1].lower()
+
+    # Проверяем тип файла
+    if file.content_type not in allowed_types and file_extension not in allowed_extensions:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Неподдерживаемый тип файла. Разрешены: .docx, .doc, .pdf, .xlsx, .xls и изображения"
+        )
+
+    # Создаем директорию если не существует
+    upload_dir = "uploads/templates"
+    os.makedirs(upload_dir, exist_ok=True)
+
+    # Генерируем уникальное имя файла
+    unique_filename = f"{uuid.uuid4()}_{file.filename}"
+    file_path = os.path.join(upload_dir, unique_filename)
+
+    # Сохраняем файл
+    with open(file_path, "wb") as buffer:
+        content = await file.read()
+        buffer.write(content)
+
+    return {"file_path": f"/{file_path}"}
+
+
 # Регистрация физического лица
 @router.post("/register-individual")
 async def register_individual(
