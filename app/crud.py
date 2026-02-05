@@ -842,8 +842,10 @@ from app.schemas import EventCreate, EventUpdate, EventParticipantCreate
 
 
 def get_events(db: Session, skip: int = 0, limit: int = 100):
-    """Get all events with pagination"""
-    return db.query(Event).offset(skip).limit(limit).all()
+    """Get all approved events with pagination (public API)"""
+    return db.query(Event).filter(
+        Event.moderation_status == 'approved'
+    ).order_by(Event.event_date.desc()).offset(skip).limit(limit).all()
 
 
 def filter_events(
@@ -855,8 +857,11 @@ def filter_events(
         skip: int = 0,
         limit: int = 100
 ):
-    """Filter events by various parameters"""
+    """Filter events by various parameters (public API - only approved events)"""
     query = db.query(Event)
+
+    # Only show approved events to public
+    query = query.filter(Event.moderation_status == 'approved')
 
     # Apply filters
     if format:
@@ -884,8 +889,8 @@ def filter_events(
     elif to_date:
         query = query.filter(Event.event_date <= to_date)
 
-    # Apply pagination
-    return query.offset(skip).limit(limit).all()
+    # Apply pagination with ordering
+    return query.order_by(Event.event_date.desc()).offset(skip).limit(limit).all()
 
 
 def get_event(db: Session, event_id: int):
@@ -975,7 +980,17 @@ def update_event(db: Session, event_id: int, event_update: EventUpdate, admin_id
 
         # Define major fields that trigger re-moderation
         major_fields = ['title', 'description', 'location', 'event_date']
-        major_update = any(field in update_data for field in major_fields)
+
+        # Check if any major field actually CHANGED (not just present in update)
+        major_update = False
+        for field in major_fields:
+            if field in update_data:
+                current_value = getattr(db_event, field)
+                new_value = update_data[field]
+                # Compare values (handle datetime comparison)
+                if current_value != new_value:
+                    major_update = True
+                    break
 
         # Check if admin bypasses moderation
         is_admin = admin_role in ['administrator', 'super_admin'] if admin_role else False
