@@ -13,6 +13,7 @@ from app.schemas import (
 from app import crud
 from app.utils import send_email
 from app.oauth2 import get_current_user
+from app.notification_service import create_notification
 from app import models, resume_models
 from datetime import datetime
 
@@ -82,6 +83,40 @@ def search_vacancies(
         limit=limit
     )
     return vacancies
+
+
+@router.get("/my-applications")
+def get_my_applications(
+    skip: int = 0,
+    limit: int = 100,
+    status_filter: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """Мои отклики"""
+    applications = crud.get_user_applications(
+        db,
+        user_id=current_user.id,
+        skip=skip,
+        limit=limit,
+        status_filter=status_filter
+    )
+
+    result = []
+    for app in applications:
+        vacancy = db.query(models.Vacancy).filter(models.Vacancy.id == app.vacancy_id).first()
+        result.append({
+            "id": app.id,
+            "vacancy_id": app.vacancy_id,
+            "vacancy_title_kz": vacancy.title_kz if vacancy else None,
+            "vacancy_title_ru": vacancy.title_ru if vacancy else None,
+            "status": app.status,
+            "cover_letter": app.cover_letter,
+            "created_at": app.created_at,
+            "updated_at": app.updated_at,
+        })
+
+    return result
 
 
 @router.get("/{vacancy_id}")
@@ -339,25 +374,6 @@ def apply_for_vacancy(
     return new_application
 
 
-@router.get("/my-applications")
-def get_my_applications(
-    skip: int = 0,
-    limit: int = 100,
-    status_filter: Optional[str] = None,
-    db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user)
-):
-    """Мои отклики"""
-    applications = crud.get_user_applications(
-        db,
-        user_id=current_user.id,
-        skip=skip,
-        limit=limit,
-        status_filter=status_filter
-    )
-    return applications
-
-
 @router.get("/{vacancy_id}/applications")
 def get_vacancy_applications(
         vacancy_id: int,
@@ -425,6 +441,39 @@ def update_application_status(
     updated_application = crud.update_vacancy_application_status(
         db, application_id=application_id, status=status_update.status
     )
+
+    # Notify user about status change
+    if status_update.status in ["accepted", "rejected", "reviewed"]:
+        vacancy = db.query(models.Vacancy).filter(models.Vacancy.id == vacancy_id).first()
+        vacancy_title = ""
+        if vacancy:
+            vacancy_title = vacancy.title_ru or vacancy.title_kz or ""
+
+        status_labels = {
+            "accepted": ("Вакансия өтінімі мақұлданды", "Отклик на вакансию принят",
+                         f"Сіздің '{vacancy_title}' вакансиясына өтініміңіз мақұлданды",
+                         f"Ваш отклик на вакансию '{vacancy_title}' принят"),
+            "rejected": ("Вакансия өтінімі қабылданбады", "Отклик на вакансию отклонён",
+                         f"Сіздің '{vacancy_title}' вакансиясына өтініміңіз қабылданбады",
+                         f"Ваш отклик на вакансию '{vacancy_title}' отклонён"),
+            "reviewed": ("Вакансия өтінімі қаралды", "Отклик на вакансию просмотрен",
+                         f"Сіздің '{vacancy_title}' вакансиясына өтініміңіз қаралды",
+                         f"Ваш отклик на вакансию '{vacancy_title}' просмотрен"),
+        }
+
+        labels = status_labels[status_update.status]
+        create_notification(
+            db,
+            user_id=application.user_id,
+            title_kz=labels[0],
+            title_ru=labels[1],
+            notification_type=f"vacancy_application_{status_update.status}",
+            entity_type="vacancy_application",
+            entity_id=application.id,
+            message_kz=labels[2],
+            message_ru=labels[3],
+        )
+        db.commit()
 
     return updated_application
 

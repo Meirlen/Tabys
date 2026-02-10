@@ -787,3 +787,58 @@ async def save_uploaded_file(file: UploadFile, file_type: str) -> str:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Ошибка обработки изображения: {str(e)}"
         )
+
+
+@router.get("/users")
+def get_all_users(
+    skip: int = 0,
+    limit: int = 1000,
+    status_filter: str = None,
+    current_admin: models.Admin = Depends(oauth2.get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """
+    Get all users (admin only) for notification targeting.
+    Returns basic user info: id, email, phone, name, status
+    """
+    query = db.query(models.User)
+
+    # Filter by status if provided
+    if status_filter and status_filter != "all":
+        query = query.filter(models.User.service_status == status_filter)
+
+    total = query.count()
+    users = query.offset(skip).limit(limit).all()
+
+    # Build response with user details
+    result = []
+    for user in users:
+        user_data = {
+            "id": user.id,
+            "phone_number": user.phone_number,
+            "email": None,
+            "full_name": None,
+            "status": user.service_status.value if user.service_status else "UNKNOWN",
+            "user_type": user.user_type,
+        }
+
+        # Get additional details based on user type
+        if user.user_type == "individual":
+            individual = db.query(models.Individual).filter(
+                models.Individual.user_id == user.id
+            ).first()
+            if individual:
+                user_data["full_name"] = individual.full_name
+                # Individual model doesn't have email, use phone from User
+
+        elif user.user_type == "organization":
+            organization = db.query(models.Organization).filter(
+                models.Organization.user_id == user.id
+            ).first()
+            if organization:
+                user_data["full_name"] = organization.name
+                user_data["email"] = organization.email
+
+        result.append(user_data)
+
+    return result

@@ -3,7 +3,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
 from app.database import get_db
-from app import oauth2
+from app import oauth2, models
 from app.project_models import (
     Project, ProjectGallery, VotingParticipant, Vote,
     ProjectApplication, VotingResults,  ProjectStatusEnum,
@@ -20,6 +20,7 @@ from typing import List, Optional
 import os
 import uuid
 from datetime import datetime
+from app.notification_service import create_notification
 
 router = APIRouter(prefix="/api/v2/projects", tags=["Projects"])
 
@@ -236,6 +237,106 @@ def get_projects(
     db.commit()
 
     return result
+
+
+@router.get("/my-votes")
+def get_my_votes(
+        db: Session = Depends(get_db),
+        current_user: dict = Depends(oauth2.get_current_user)
+):
+    """
+    Получение голосов текущего пользователя
+    """
+    user_id = current_user.get("user_id")
+
+    votes = db.query(Vote).filter(Vote.user_id == user_id).order_by(desc(Vote.created_at)).all()
+
+    result = []
+    for vote in votes:
+        project = db.query(Project).filter(Project.id == vote.project_id).first()
+        participant = db.query(VotingParticipant).filter(VotingParticipant.id == vote.participant_id).first()
+
+        result.append({
+            "vote_id": vote.id,
+            "project_id": vote.project_id,
+            "project_title": project.title if project else "Неизвестный проект",
+            "participant_id": vote.participant_id,
+            "participant_name": participant.name if participant else "Неизвестный участник",
+            "participant_photo": get_full_url(participant.photo_url) if participant and participant.photo_url else None,
+            "voted_at": vote.created_at
+        })
+
+    return {
+        "total_votes": len(result),
+        "votes": result
+    }
+
+
+@router.get("/my-applications")
+def get_my_applications(
+        phone_number: str,
+        db: Session = Depends(get_db)
+):
+    """
+    Получение заявок пользователя по номеру телефона
+    """
+    applications = db.query(ProjectApplication).filter(
+        ProjectApplication.phone_number == phone_number
+    ).order_by(desc(ProjectApplication.created_at)).all()
+
+    result = []
+    for app in applications:
+        project = db.query(Project).filter(Project.id == app.project_id).first()
+
+        result.append({
+            "application_id": app.id,
+            "project_id": app.project_id,
+            "project_title": project.title if project else "Неизвестный проект",
+            "description": app.description,
+            "applicant_name": app.applicant_name,
+            "status": app.status,
+            "admin_comment": app.admin_comment,
+            "document_url": get_full_url(app.document_url),
+            "created_at": app.created_at,
+            "reviewed_at": app.reviewed_at
+        })
+
+    return {
+        "total_applications": len(result),
+        "applications": result
+    }
+
+
+@router.get("/my-submissions")
+def get_my_submissions(
+        db: Session = Depends(get_db),
+        current_user: models.User = Depends(oauth2.get_current_user),
+):
+    """
+    Получение отправленных форм пользователя (project form submissions)
+    """
+    submissions = db.query(ProjectFormSubmission).filter(
+        ProjectFormSubmission.user_id == current_user.id
+    ).order_by(desc(ProjectFormSubmission.submitted_at)).all()
+
+    result = []
+    for sub in submissions:
+        project = db.query(Project).filter(Project.id == sub.project_id).first()
+        result.append({
+            "submission_id": sub.id,
+            "project_id": sub.project_id,
+            "project_title": project.title if project else "Неизвестный проект",
+            "applicant_name": sub.applicant_name,
+            "status": sub.status,
+            "admin_comment": sub.admin_comment,
+            "submitted_at": sub.submitted_at,
+            "reviewed_at": sub.reviewed_at,
+        })
+
+    return {
+        "total_submissions": len(result),
+        "submissions": result
+    }
 
 
 @router.get("/{project_id}", response_model=dict)
@@ -840,6 +941,41 @@ def update_application_status(
     application.reviewed_at = datetime.utcnow()
     application.reviewed_by = current_user.get("user_id")
 
+    # Notify user if status changed to approved/rejected
+    if new_status in ["approved", "rejected"]:
+        user = db.query(models.User).filter(
+            models.User.phone_number == application.phone_number
+        ).first()
+        if user:
+            project = db.query(Project).filter(Project.id == application.project_id).first()
+            project_title = project.title if project else ""
+            if new_status == "approved":
+                create_notification(
+                    db,
+                    user_id=user.id,
+                    title_kz="Жоба өтінімі мақұлданды",
+                    title_ru="Заявка на проект одобрена",
+                    notification_type="project_application_approved",
+                    entity_type="project_application",
+                    entity_id=application.id,
+                    message_kz=f"Сіздің '{project_title}' жобасына өтініміңіз мақұлданды",
+                    message_ru=f"Ваша заявка на проект '{project_title}' одобрена",
+                    admin_comment=comment,
+                )
+            else:
+                create_notification(
+                    db,
+                    user_id=user.id,
+                    title_kz="Жоба өтінімі қабылданбады",
+                    title_ru="Заявка на проект отклонена",
+                    notification_type="project_application_rejected",
+                    entity_type="project_application",
+                    entity_id=application.id,
+                    message_kz=f"Сіздің '{project_title}' жобасына өтініміңіз қабылданбады",
+                    message_ru=f"Ваша заявка на проект '{project_title}' отклонена",
+                    admin_comment=comment,
+                )
+
     db.commit()
 
     return {
@@ -1009,74 +1145,6 @@ def get_active_application_projects(db: Session = Depends(get_db)):
     return {
         "count": len(result),
         "projects": result
-    }
-
-
-@router.get("/my-votes")
-def get_my_votes(
-        db: Session = Depends(get_db),
-        current_user: dict = Depends(oauth2.get_current_user)
-):
-    """
-    Получение голосов текущего пользователя
-    """
-    user_id = current_user.get("user_id")
-
-    votes = db.query(Vote).filter(Vote.user_id == user_id).order_by(desc(Vote.created_at)).all()
-
-    result = []
-    for vote in votes:
-        project = db.query(Project).filter(Project.id == vote.project_id).first()
-        participant = db.query(VotingParticipant).filter(VotingParticipant.id == vote.participant_id).first()
-
-        result.append({
-            "vote_id": vote.id,
-            "project_id": vote.project_id,
-            "project_title": project.title if project else "Неизвестный проект",
-            "participant_id": vote.participant_id,
-            "participant_name": participant.name if participant else "Неизвестный участник",
-            "participant_photo": get_full_url(participant.photo_url) if participant and participant.photo_url else None,
-            "voted_at": vote.created_at
-        })
-
-    return {
-        "total_votes": len(result),
-        "votes": result
-    }
-
-
-@router.get("/my-applications")
-def get_my_applications(
-        phone_number: str,
-        db: Session = Depends(get_db)
-):
-    """
-    Получение заявок пользователя по номеру телефона
-    """
-    applications = db.query(ProjectApplication).filter(
-        ProjectApplication.phone_number == phone_number
-    ).order_by(desc(ProjectApplication.created_at)).all()
-
-    result = []
-    for app in applications:
-        project = db.query(Project).filter(Project.id == app.project_id).first()
-
-        result.append({
-            "application_id": app.id,
-            "project_id": app.project_id,
-            "project_title": project.title if project else "Неизвестный проект",
-            "description": app.description,
-            "applicant_name": app.applicant_name,
-            "status": app.status,
-            "admin_comment": app.admin_comment,
-            "document_url": get_full_url(app.document_url),
-            "created_at": app.created_at,
-            "reviewed_at": app.reviewed_at
-        })
-
-    return {
-        "total_applications": len(result),
-        "applications": result
     }
 
 
@@ -2395,13 +2463,42 @@ def update_submission_status(
         submission.status = status_data.status
         submission.reviewed_by = current_admin.id
         submission.reviewed_at = datetime.utcnow()
-    
+
     if status_data.admin_comment is not None:
         submission.admin_comment = status_data.admin_comment
-    
+
+    # Notify user if status changed to approved/rejected and user_id exists
+    if status_data.status in ["approved", "rejected"] and submission.user_id:
+        if status_data.status == "approved":
+            create_notification(
+                db,
+                user_id=submission.user_id,
+                title_kz="Жоба өтінімі мақұлданды",
+                title_ru="Заявка на проект одобрена",
+                notification_type="submission_approved",
+                entity_type="project_submission",
+                entity_id=submission.id,
+                message_kz=f"Сіздің жоба өтініміңіз мақұлданды",
+                message_ru=f"Ваша заявка на проект одобрена",
+                admin_comment=status_data.admin_comment,
+            )
+        else:
+            create_notification(
+                db,
+                user_id=submission.user_id,
+                title_kz="Жоба өтінімі қабылданбады",
+                title_ru="Заявка на проект отклонена",
+                notification_type="submission_rejected",
+                entity_type="project_submission",
+                entity_id=submission.id,
+                message_kz=f"Сіздің жоба өтініміңіз қабылданбады",
+                message_ru=f"Ваша заявка на проект отклонена",
+                admin_comment=status_data.admin_comment,
+            )
+
     db.commit()
     db.refresh(submission)
-    
+
     return submission
 
 

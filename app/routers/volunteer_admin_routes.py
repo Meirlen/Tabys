@@ -9,6 +9,7 @@ from app.v_schemas import *
 from datetime import datetime
 from typing import Optional
 from app.rbac import Module, Permission, require_permission, require_module_access
+from app.notification_service import create_notification
 
 router = APIRouter(prefix="/api/v2/admin/volunteer", tags=["Volunteer Admin"])
 
@@ -119,6 +120,24 @@ def approve_application(
         raise HTTPException(status_code=404, detail="Не найдено")
 
     app.status = "approved"
+
+    # Notify volunteer
+    volunteer = db.query(Volunteer).filter(Volunteer.id == app.volunteer_id).first()
+    if volunteer:
+        event = db.query(VolunteerEvent).filter(VolunteerEvent.id == app.event_id).first()
+        event_title = event.title if event else ""
+        create_notification(
+            db,
+            user_id=volunteer.user_id,
+            title_kz="Өтінім мақұлданды",
+            title_ru="Заявка одобрена",
+            notification_type="application_approved",
+            entity_type="volunteer_application",
+            entity_id=app.id,
+            message_kz=f"Сіздің '{event_title}' іс-шарасына өтініміңіз мақұлданды",
+            message_ru=f"Ваша заявка на мероприятие '{event_title}' одобрена",
+        )
+
     db.commit()
     return {"message": "Заявка одобрена"}
 
@@ -138,6 +157,25 @@ def reject_application(
     app.status = "rejected"
     if reason:
         app.rejection_reason = reason  # Если есть поле в модели
+
+    # Notify volunteer
+    volunteer = db.query(Volunteer).filter(Volunteer.id == app.volunteer_id).first()
+    if volunteer:
+        event = db.query(VolunteerEvent).filter(VolunteerEvent.id == app.event_id).first()
+        event_title = event.title if event else ""
+        create_notification(
+            db,
+            user_id=volunteer.user_id,
+            title_kz="Өтінім қабылданбады",
+            title_ru="Заявка отклонена",
+            notification_type="application_rejected",
+            entity_type="volunteer_application",
+            entity_id=app.id,
+            message_kz=f"Сіздің '{event_title}' іс-шарасына өтініміңіз қабылданбады",
+            message_ru=f"Ваша заявка на мероприятие '{event_title}' отклонена",
+            admin_comment=reason,
+        )
+
     db.commit()
     return {"message": "Заявка отклонена"}
 
@@ -201,6 +239,34 @@ def mark_attendance(
             balance.warning_level = "orange"
         elif balance.events_missed >= 3:
             balance.warning_level = "red"
+
+    # Notify volunteer about attendance
+    event = db.query(VolunteerEvent).filter(VolunteerEvent.id == app.event_id).first()
+    event_title = event.title if event else ""
+    if attended:
+        create_notification(
+            db,
+            user_id=volunteer.user_id,
+            title_kz="Қатысу белгіленді",
+            title_ru="Присутствие отмечено",
+            notification_type="attendance_marked",
+            entity_type="volunteer_application",
+            entity_id=app.id,
+            message_kz=f"Сіздің '{event_title}' іс-шарасына қатысуыңыз белгіленді",
+            message_ru=f"Ваше присутствие на мероприятии '{event_title}' отмечено",
+        )
+    else:
+        create_notification(
+            db,
+            user_id=volunteer.user_id,
+            title_kz="Қатыспау белгіленді",
+            title_ru="Отсутствие отмечено",
+            notification_type="absence_marked",
+            entity_type="volunteer_application",
+            entity_id=app.id,
+            message_kz=f"Сіздің '{event_title}' іс-шарасына қатыспағаныңыз белгіленді",
+            message_ru=f"Ваше отсутствие на мероприятии '{event_title}' отмечено",
+        )
 
     db.commit()
 
@@ -531,6 +597,20 @@ def approve_promotion(
     req.reviewed_at = datetime.utcnow()
     req.reviewed_by = current_admin.id
 
+    # Notify volunteer
+    create_notification(
+        db,
+        user_id=volunteer.user_id,
+        title_kz="Мәртебе көтерілді",
+        title_ru="Повышение одобрено",
+        notification_type="promotion_approved",
+        entity_type="promotion_request",
+        entity_id=req.id,
+        message_kz=f"Сіздің мәртебеңіз '{req.requested_status}' деңгейіне көтерілді",
+        message_ru=f"Ваш статус повышен до '{req.requested_status}'",
+        admin_comment=req.admin_comment,
+    )
+
     db.commit()
 
     return {
@@ -559,6 +639,22 @@ def reject_promotion(
     req.admin_comment = admin_comment
     req.reviewed_at = datetime.utcnow()
     req.reviewed_by = current_admin.id
+
+    # Notify volunteer
+    volunteer = db.query(Volunteer).filter(Volunteer.id == req.volunteer_id).first()
+    if volunteer:
+        create_notification(
+            db,
+            user_id=volunteer.user_id,
+            title_kz="Мәртебе көтеру қабылданбады",
+            title_ru="Повышение отклонено",
+            notification_type="promotion_rejected",
+            entity_type="promotion_request",
+            entity_id=req.id,
+            message_kz=f"Сіздің '{req.requested_status}' мәртебесіне көтерілу сұрауыңыз қабылданбады",
+            message_ru=f"Ваш запрос на повышение до '{req.requested_status}' отклонён",
+            admin_comment=admin_comment,
+        )
 
     db.commit()
 
@@ -899,6 +995,20 @@ def approve_task_report(
     )
     db.add(transaction)
 
+    # Notify volunteer
+    create_notification(
+        db,
+        user_id=volunteer.user_id,
+        title_kz="Есеп мақұлданды",
+        title_ru="Отчёт одобрен",
+        notification_type="task_report_approved",
+        entity_type="task_completion",
+        entity_id=completion.id,
+        message_kz=f"Сіздің '{task.title}' тапсырмасы бойынша есебіңіз мақұлданды. +{task.v_coins_bonus} V-coins",
+        message_ru=f"Ваш отчёт по задаче '{task.title}' одобрен. +{task.v_coins_bonus} V-coins",
+        admin_comment=request.admin_comment,
+    )
+
     db.commit()
 
     return {
@@ -933,6 +1043,26 @@ def reject_task_report(
     completion.v_coins_earned = 0
     completion.completed = False  # Снимаем отметку о выполнении
 
+    # Notify volunteer
+    application = db.query(EventApplication).filter(EventApplication.id == completion.application_id).first()
+    task = db.query(EventTask).filter(EventTask.id == completion.task_id).first()
+    if application:
+        volunteer = db.query(Volunteer).filter(Volunteer.id == application.volunteer_id).first()
+        if volunteer:
+            task_title = task.title if task else ""
+            create_notification(
+                db,
+                user_id=volunteer.user_id,
+                title_kz="Есеп қабылданбады",
+                title_ru="Отчёт отклонён",
+                notification_type="task_report_rejected",
+                entity_type="task_completion",
+                entity_id=completion.id,
+                message_kz=f"Сіздің '{task_title}' тапсырмасы бойынша есебіңіз қабылданбады",
+                message_ru=f"Ваш отчёт по задаче '{task_title}' отклонён",
+                admin_comment=request.admin_comment,
+            )
+
     db.commit()
 
     return {
@@ -956,6 +1086,24 @@ def approve_purchase(
         raise HTTPException(status_code=400, detail="Покупка уже обработана")
 
     purchase.status = "approved"
+
+    # Notify volunteer
+    volunteer = db.query(Volunteer).filter(Volunteer.id == purchase.volunteer_id).first()
+    if volunteer:
+        benefit = db.query(Benefit).filter(Benefit.id == purchase.benefit_id).first()
+        benefit_title = benefit.title if benefit else ""
+        create_notification(
+            db,
+            user_id=volunteer.user_id,
+            title_kz="Сатып алу мақұлданды",
+            title_ru="Покупка одобрена",
+            notification_type="purchase_approved",
+            entity_type="benefit_purchase",
+            entity_id=purchase.id,
+            message_kz=f"Сіздің '{benefit_title}' сатып алуыңыз мақұлданды",
+            message_ru=f"Ваша покупка '{benefit_title}' одобрена",
+        )
+
     db.commit()
 
     return {"message": "Покупка одобрена"}
@@ -980,6 +1128,23 @@ def complete_purchase(
     purchase.completed_at = datetime.utcnow()
     if admin_notes and hasattr(purchase, 'admin_notes'):
         purchase.admin_notes = admin_notes
+
+    # Notify volunteer
+    volunteer = db.query(Volunteer).filter(Volunteer.id == purchase.volunteer_id).first()
+    if volunteer:
+        benefit = db.query(Benefit).filter(Benefit.id == purchase.benefit_id).first()
+        benefit_title = benefit.title if benefit else ""
+        create_notification(
+            db,
+            user_id=volunteer.user_id,
+            title_kz="Сатып алу аяқталды",
+            title_ru="Покупка завершена",
+            notification_type="purchase_completed",
+            entity_type="benefit_purchase",
+            entity_id=purchase.id,
+            message_kz=f"Сіздің '{benefit_title}' сатып алуыңыз аяқталды",
+            message_ru=f"Ваша покупка '{benefit_title}' завершена",
+        )
 
     db.commit()
 
@@ -1034,6 +1199,21 @@ def cancel_purchase(
     benefit = db.query(Benefit).filter(Benefit.id == purchase.benefit_id).first()
     if benefit and benefit.stock_limit:
         benefit.stock_available += 1
+
+    # Notify volunteer
+    benefit_title = benefit.title if benefit else ""
+    create_notification(
+        db,
+        user_id=volunteer.user_id,
+        title_kz="Сатып алу жойылды",
+        title_ru="Покупка отменена",
+        notification_type="purchase_cancelled",
+        entity_type="benefit_purchase",
+        entity_id=purchase.id,
+        message_kz=f"Сіздің '{benefit_title}' сатып алуыңыз жойылды. {purchase.v_coins_spent} V-coins қайтарылды",
+        message_ru=f"Ваша покупка '{benefit_title}' отменена. {purchase.v_coins_spent} V-coins возвращены",
+        admin_comment=request.reason,
+    )
 
     db.commit()
 
