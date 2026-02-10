@@ -1,12 +1,12 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from app.routers import experts, auth,volunteer_auth,volunteer_admin_routes,volunteer_routes, vacancies, admin_auth_router,resume_routes,leisure_routes, events, certificates, projects, news, analytics, telegram_auth, broadcasts, moderation, email_sender, notifications
+from app.routers import experts, auth,volunteer_auth,volunteer_admin_routes,volunteer_routes, vacancies, admin_auth_router,resume_routes,leisure_routes, events, certificates, projects, news, analytics, telegram_auth, broadcasts, moderation, email_sender, notifications, user_telegram
 from app.routers import courses_router
 from app.database import engine, Base
 
 # Импортируем модели проектов для создания таблиц
-from app import project_models, news_models, analytics_models, telegram_otp_models, broadcast_models, moderation_notification_models, notification_models
+from app import project_models, news_models, analytics_models, telegram_otp_models, broadcast_models, moderation_notification_models, notification_models, user_telegram_models
 
 # Импортируем планировщик новостей
 from app.news_scheduler import start_scheduler, stop_scheduler
@@ -84,7 +84,8 @@ app.add_middleware(
         "Authorization",
         "X-Requested-With",
         "X-CSRF-Token",
-        "X-API-Key"
+        "X-API-Key",
+        "X-Bot-Secret"
     ],
     expose_headers=["*"]
 )
@@ -133,6 +134,7 @@ app.include_router(telegram_auth.router)  # Telegram Bot Authentication
 app.include_router(broadcasts.router)  # Telegram Broadcasts
 app.include_router(email_sender.router)  # Email Sender
 app.include_router(notifications.router)  # User Notifications
+app.include_router(user_telegram.router)  # User Telegram Linking
 
 
 # Корневой маршрут

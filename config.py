@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     WHATSAPP_INSTANCE: str
     MOBIZON_API_KEY: str
     telegram_bot_token: str = ""  # Optional: for broadcast messaging
+    TELEGRAM_BOT_USERNAME: str = ""  # Bot username for deep link (without @)
+    TELEGRAM_BOT_LINK_SECRET: str = ""  # Shared secret between bot and backend
 
     # Resend API configuration for email notifications
     RESEND_API_KEY: str = ""  # Resend API key
