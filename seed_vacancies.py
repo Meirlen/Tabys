@@ -1,7 +1,7 @@
 """
 Seed script for 50 Karaganda vacancies parsed from hh.kz
-Run inside Docker: docker-compose exec api python seed_vacancies.py
-"""
+Run inside Do cker: docker-compose exec api python seed_vacancies.py
+""" 
 import sys
 import os
 sys.path.insert(0, os.path.dirname(__file__))
