@@ -1,11 +1,18 @@
 """
-Analytics Seed Script
+Analytics Seed Script (Non-Destructive / Additive)
 
 This script generates realistic analytics data for the Tabys platform:
-- 7,420 total users (~7,370 individuals, ~50 organizations)
+- Adds 7,420 new users (~7,370 individuals, ~50 organizations)
 - ~200-300 daily active users
 - Realistic activity patterns, login history, and system events
 - 90 days of historical data
+
+IMPORTANT: This script is NON-DESTRUCTIVE. It will:
+✓ Keep all existing users, admins, and data
+✓ Add new test users and analytics data
+✓ NOT delete anything
+
+Safe to run on any database!
 """
 
 import sys
@@ -20,6 +27,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app.database import SessionLocal, engine, Base
 from app.models import User, Individual, Organization, Admin
 from app.analytics_models import UserActivity, LoginHistory, SystemEvent
+from app.project_models import ProjectFormSubmission
+from app.user_telegram_models import UserTelegramLink
 
 
 # Configuration
@@ -109,15 +118,13 @@ def weighted_choice(choices):
 
 
 def generate_users(db: Session):
-    """Generate users with realistic distribution"""
-    print(f"Generating {TOTAL_USERS} users...")
-    
-    # Delete existing users to start fresh
-    db.query(Individual).delete()
-    db.query(Organization).delete()
-    db.query(User).delete()
-    db.commit()
-    
+    """Generate users with realistic distribution (additive - keeps existing users)"""
+
+    # Count existing users
+    existing_user_count = db.query(User).count()
+    print(f"Found {existing_user_count} existing users")
+    print(f"Adding {TOTAL_USERS} new users...")
+
     users_created = 0
     
     # Generate users over the past year with growth pattern
@@ -173,10 +180,12 @@ def generate_users(db: Session):
         if users_created % 500 == 0:
             db.commit()
             print(f"  Created {users_created} users...")
-    
+
     db.commit()
-    print(f"✓ Created {TOTAL_USERS} users")
-    return TOTAL_USERS
+    total_users = existing_user_count + TOTAL_USERS
+    print(f"✓ Created {TOTAL_USERS} new users")
+    print(f"✓ Total users in database: {total_users}")
+    return total_users
 
 
 def generate_admins(db: Session):
@@ -205,13 +214,11 @@ def generate_admins(db: Session):
 
 
 def generate_login_history(db: Session, user_count: int, admin_count: int):
-    """Generate realistic login history"""
+    """Generate realistic login history (additive - keeps existing history)"""
+    existing_login_count = db.query(LoginHistory).count()
+    print(f"Found {existing_login_count} existing login records")
     print(f"Generating login history for {DAYS_OF_HISTORY} days...")
-    
-    # Clear existing login history
-    db.query(LoginHistory).delete()
-    db.commit()
-    
+
     end_date = datetime.utcnow()
     total_logins = 0
     
@@ -278,19 +285,18 @@ def generate_login_history(db: Session, user_count: int, admin_count: int):
         if day % 10 == 0:
             db.commit()
             print(f"  Processed {day} days...")
-    
+
     db.commit()
-    print(f"✓ Generated {total_logins:,} login records")
+    print(f"✓ Generated {total_logins:,} new login records")
+    print(f"✓ Total login records: {existing_login_count + total_logins:,}")
 
 
 def generate_user_activities(db: Session, user_count: int, admin_count: int):
-    """Generate realistic user activities"""
+    """Generate realistic user activities (additive - keeps existing activities)"""
+    existing_activity_count = db.query(UserActivity).count()
+    print(f"Found {existing_activity_count} existing activity records")
     print(f"Generating user activities for {DAYS_OF_HISTORY} days...")
-    
-    # Clear existing activities
-    db.query(UserActivity).delete()
-    db.commit()
-    
+
     end_date = datetime.utcnow()
     total_activities = 0
     
@@ -368,19 +374,18 @@ def generate_user_activities(db: Session, user_count: int, admin_count: int):
         if day % 10 == 0:
             db.commit()
             print(f"  Processed {day} days...")
-    
+
     db.commit()
-    print(f"✓ Generated {total_activities:,} activity records")
+    print(f"✓ Generated {total_activities:,} new activity records")
+    print(f"✓ Total activity records: {existing_activity_count + total_activities:,}")
 
 
 def generate_system_events(db: Session):
-    """Generate system events"""
+    """Generate system events (additive - keeps existing events)"""
+    existing_event_count = db.query(SystemEvent).count()
+    print(f"Found {existing_event_count} existing system events")
     print(f"Generating system events for {DAYS_OF_HISTORY} days...")
-    
-    # Clear existing events
-    db.query(SystemEvent).delete()
-    db.commit()
-    
+
     end_date = datetime.utcnow()
     total_events = 0
     
@@ -448,17 +453,19 @@ def generate_system_events(db: Session):
         if day % 10 == 0:
             db.commit()
             print(f"  Processed {day} days...")
-    
+
     db.commit()
-    print(f"✓ Generated {total_events:,} system events")
+    print(f"✓ Generated {total_events:,} new system events")
+    print(f"✓ Total system events: {existing_event_count + total_events:,}")
 
 
 def main():
     """Main seeding function"""
     print("=" * 60)
-    print("TABYS ANALYTICS SEED SCRIPT")
+    print("TABYS ANALYTICS SEED SCRIPT (NON-DESTRUCTIVE)")
     print("=" * 60)
-    print(f"Target: {TOTAL_USERS:,} users (~7,370 individuals, ~50 organizations)")
+    print(f"Mode: ADDITIVE - Will keep all existing data")
+    print(f"Adding: {TOTAL_USERS:,} users (~7,370 individuals, ~50 organizations)")
     print(f"Daily Active: {DAILY_ACTIVE_USERS_MIN}-{DAILY_ACTIVE_USERS_MAX}")
     print(f"History: {DAYS_OF_HISTORY} days")
     print("=" * 60)
@@ -494,11 +501,14 @@ def main():
         print("=" * 60)
         print("SEEDING COMPLETED SUCCESSFULLY!")
         print("=" * 60)
-        print(f"✓ {TOTAL_USERS:,} users created")
-        print(f"✓ {admin_count} admins created")
-        print(f"✓ Login history populated")
-        print(f"✓ User activities populated")
-        print(f"✓ System events populated")
+        print(f"✓ {TOTAL_USERS:,} new users added")
+        print(f"✓ Total users in database: {user_count:,}")
+        print(f"✓ {admin_count} total admins")
+        print(f"✓ Login history populated (90 days)")
+        print(f"✓ User activities populated (90 days)")
+        print(f"✓ System events populated (90 days)")
+        print()
+        print("NOTE: All existing data has been preserved!")
         print()
         print("You can now view the analytics dashboard at:")
         print("http://localhost:3001/kz/admin/analytics")
