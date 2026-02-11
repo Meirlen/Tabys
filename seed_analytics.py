@@ -123,24 +123,41 @@ def generate_users(db: Session):
     # Count existing users
     existing_user_count = db.query(User).count()
     print(f"Found {existing_user_count} existing users")
+
+    # Get all existing phone numbers to avoid duplicates
+    print("  Loading existing phone numbers...")
+    existing_phones = set(phone[0] for phone in db.query(User.phone_number).all())
+    print(f"  Found {len(existing_phones)} existing phone numbers to avoid")
+
     print(f"Adding {TOTAL_USERS} new users...")
 
     users_created = 0
-    
+
     # Generate users over the past year with growth pattern
     end_date = datetime.utcnow()
     start_date = end_date - timedelta(days=365)
-    
+
     for i in range(TOTAL_USERS):
         # Users are distributed over time with growth (more recent = more users)
         # Using quadratic growth curve
         progress = i / TOTAL_USERS
         days_ago = int((1 - progress ** 2) * 365)
         created_at = end_date - timedelta(days=days_ago)
-        
+
         user_type = weighted_choice(USER_TYPES)
-        phone_number = f"+77{random.randint(700000000, 799999999)}"
-        
+
+        # Generate unique phone number
+        max_attempts = 100
+        for attempt in range(max_attempts):
+            phone_number = f"+77{random.randint(700000000, 799999999)}"
+            if phone_number not in existing_phones:
+                existing_phones.add(phone_number)  # Track it to avoid duplicates in this batch
+                break
+        else:
+            # If we couldn't find a unique random number, use a sequential one
+            phone_number = f"+77{700000000 + existing_user_count + users_created}"
+            existing_phones.add(phone_number)
+
         # Create user
         user = User(
             phone_number=phone_number,
