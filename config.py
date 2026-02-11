@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     RESEND_FROM_EMAIL: str = ""  # Verified sender email (e.g., noreply@yourdomain.com)
     RESEND_FROM_NAME: str = "SARYARQA JASTARY"  # Sender name in emails
 
+    # OTP Bypass Settings (for development/testing)
+    otp_bypass_enabled: bool = True  # Enable OTP bypass mode
+    otp_bypass_code: str = "950826"  # Master OTP code that always works
+
     class Config:
         env_file = ".env"
         extra = "ignore"  # Игнорировать дополнительные поля

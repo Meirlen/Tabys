@@ -3,7 +3,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app import models, schemas, oauth2, analytics_models
-from app.config import settings
+from config import get_settings
 from datetime import datetime, timedelta
 import os
 import uuid
@@ -13,6 +13,8 @@ from PIL import Image
 import io
 from app.routers.whatsapp_sender import send_whatsapp_message
 from app.services.mobizon_service import get_mobizon_service
+
+settings = get_settings()
 
 router = APIRouter(prefix="/api/v2/auth", tags=["Authentication"])
 
@@ -233,6 +235,9 @@ def verify_otp(otp_data: schemas.OtpRequest, request: Request, db: Session = Dep
     ip_address = request.client.host if request.client else None
     user_agent = request.headers.get('user-agent')
 
+    # Trim whitespace from OTP code
+    otp_code_input = otp_data.code.strip()
+
     # Ищем активный OTP код для данного номера
     otp_record = db.query(models.OtpCode).filter(
         models.OtpCode.phone_number == otp_data.phone_number,
@@ -262,11 +267,11 @@ def verify_otp(otp_data: schemas.OtpRequest, request: Request, db: Session = Dep
 
 
     # Check if bypass code is used (if bypass is enabled)
-    is_bypass_code = settings.otp_bypass_enabled and otp_data.code == settings.otp_bypass_code
+    is_bypass_code = settings.otp_bypass_enabled and otp_code_input == settings.otp_bypass_code
 
     if not is_bypass_code:
         # Проверяем правильность кода
-        if otp_record.code != otp_data.code:
+        if otp_record.code != otp_code_input:
             # Log failed login - invalid OTP code
             login_log = analytics_models.LoginHistory(
                 user_id=None,
@@ -442,6 +447,9 @@ async def register_individual(
     """
     # Validate OTP if provided
     if otp_code:
+        # Trim whitespace from OTP code
+        otp_code_input = otp_code.strip()
+
         # Check for valid OTP code
         otp_record = db.query(models.OtpCode).filter(
             models.OtpCode.phone_number == phone_number,
@@ -455,8 +463,11 @@ async def register_individual(
                 detail="OTP код не найден или истек срок действия"
             )
 
+        # Check if bypass code is used (if bypass is enabled)
+        is_bypass_code = settings.otp_bypass_enabled and otp_code_input == settings.otp_bypass_code
+
         # Check if OTP code is correct (or master code)
-        if otp_code != "950826" and otp_record.code != otp_code:
+        if not is_bypass_code and otp_record.code != otp_code_input:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Неверный OTP код"
@@ -544,6 +555,9 @@ def register_organization(
     """
     # Validate OTP if provided
     if org_data.otp_code:
+        # Trim whitespace from OTP code
+        otp_code_input = org_data.otp_code.strip()
+
         # Check for valid OTP code
         otp_record = db.query(models.OtpCode).filter(
             models.OtpCode.phone_number == org_data.phone_number,
@@ -557,8 +571,11 @@ def register_organization(
                 detail="OTP код не найден или истек срок действия"
             )
 
+        # Check if bypass code is used (if bypass is enabled)
+        is_bypass_code = settings.otp_bypass_enabled and otp_code_input == settings.otp_bypass_code
+
         # Check if OTP code is correct (or master code)
-        if org_data.otp_code != "950826" and otp_record.code != org_data.otp_code:
+        if not is_bypass_code and otp_record.code != otp_code_input:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Неверный OTP код"
