@@ -77,6 +77,11 @@ def check_sms_balance():
         }
 
 
+def normalize_phone_number(phone: str) -> str:
+    """Нормализует номер телефона, убирая все символы кроме цифр"""
+    return ''.join(filter(str.isdigit, phone))
+
+
 def generate_otp_code() -> str:
     """Генерирует случайный 6-значный OTP код"""
     return str(random.randint(100000, 999999))
@@ -88,7 +93,9 @@ def check_profile(login_data: schemas.LoginRequest, db: Session = Depends(get_db
     """
     Проверяет существование профиля по номеру телефона
     """
-    phone_number = login_data.phone_number
+    # Normalize phone number
+    phone_number = normalize_phone_number(login_data.phone_number)
+    print(f"DEBUG check-profile: normalized phone={phone_number}")
 
     # Ищем пользователя
     user = db.query(models.User).filter(
@@ -109,12 +116,13 @@ def check_profile(login_data: schemas.LoginRequest, db: Session = Depends(get_db
         expires_at = datetime.utcnow() + timedelta(minutes=5)
         new_otp = models.OtpCode(
             phone_number=phone_number,
-            code=otp_code,
+            code=otp_code.strip(),  # Ensure no whitespace
             expires_at=expires_at
         )
 
         db.add(new_otp)
         db.commit()
+        db.refresh(new_otp)  # Refresh to ensure data is committed
 
         # Отправка SMS через Mobizon
         mobizon = get_mobizon_service()
@@ -147,7 +155,7 @@ def send_otp(login_data: schemas.LoginRequest, db: Session = Depends(get_db)):
     """
     Отправляет OTP код на указанный номер телефона
     """
-    phone_number = login_data.phone_number
+    phone_number = normalize_phone_number(login_data.phone_number)
 
     # Генерируем случайный OTP код
     otp_code = generate_otp_code()
@@ -192,7 +200,7 @@ def login_with_phone(login_data: schemas.LoginRequest, db: Session = Depends(get
     """
     Авторизация пользователя только по номеру телефона (без OTP)
     """
-    phone_number = login_data.phone_number
+    phone_number = normalize_phone_number(login_data.phone_number)
 
     # Ищем пользователя
     user = db.query(models.User).filter(
@@ -235,15 +243,27 @@ def verify_otp(otp_data: schemas.OtpRequest, request: Request, db: Session = Dep
     ip_address = request.client.host if request.client else None
     user_agent = request.headers.get('user-agent')
 
-    # Trim whitespace from OTP code
+    # Normalize phone number and trim OTP code
+    phone_number = normalize_phone_number(otp_data.phone_number)
     otp_code_input = otp_data.code.strip()
+
+    print(f"DEBUG verify-otp: original_phone={otp_data.phone_number}, normalized_phone={phone_number}, code={otp_code_input}")
 
     # Ищем активный OTP код для данного номера
     otp_record = db.query(models.OtpCode).filter(
-        models.OtpCode.phone_number == otp_data.phone_number,
+        models.OtpCode.phone_number == phone_number,
         models.OtpCode.is_used == False,
         models.OtpCode.expires_at > datetime.utcnow()
     ).first()
+
+    # Debug: Check if any OTP exists for this phone (even if expired/used)
+    all_otps = db.query(models.OtpCode).filter(
+        models.OtpCode.phone_number == phone_number
+    ).order_by(models.OtpCode.created_at.desc()).limit(3).all()
+
+    print(f"DEBUG: Found {len(all_otps)} total OTP records for {phone_number}")
+    for otp in all_otps:
+        print(f"  - code={otp.code}, is_used={otp.is_used}, expires_at={otp.expires_at}, now={datetime.utcnow()}")
 
     # Проверяем существование и валидность OTP
     if not otp_record:
@@ -251,7 +271,7 @@ def verify_otp(otp_data: schemas.OtpRequest, request: Request, db: Session = Dep
         login_log = analytics_models.LoginHistory(
             user_id=None,
             user_type='user',
-            phone_number=otp_data.phone_number,
+            phone_number=phone_number,
             status='failed',
             failure_reason='OTP code not found or expired',
             ip_address=ip_address,
@@ -272,11 +292,13 @@ def verify_otp(otp_data: schemas.OtpRequest, request: Request, db: Session = Dep
     if not is_bypass_code:
         # Проверяем правильность кода
         if otp_record.code != otp_code_input:
+            print(f"DEBUG: OTP mismatch - expected: {otp_record.code}, got: {otp_code_input}")
+
             # Log failed login - invalid OTP code
             login_log = analytics_models.LoginHistory(
                 user_id=None,
                 user_type='user',
-                phone_number=otp_data.phone_number,
+                phone_number=phone_number,
                 status='failed',
                 failure_reason='Invalid OTP code',
                 ip_address=ip_address,
@@ -289,6 +311,8 @@ def verify_otp(otp_data: schemas.OtpRequest, request: Request, db: Session = Dep
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Неверный OTP код"
             )
+
+    print(f"DEBUG: OTP code validated successfully")
     else:
         print(f"DEBUG: Bypass OTP code used for {otp_data.phone_number}")
 
@@ -298,7 +322,7 @@ def verify_otp(otp_data: schemas.OtpRequest, request: Request, db: Session = Dep
 
     # Ищем пользователя
     user = db.query(models.User).filter(
-        models.User.phone_number == otp_data.phone_number
+        models.User.phone_number == phone_number
     ).first()
 
     if not user:
@@ -306,7 +330,7 @@ def verify_otp(otp_data: schemas.OtpRequest, request: Request, db: Session = Dep
         login_log = analytics_models.LoginHistory(
             user_id=None,
             user_type='user',
-            phone_number=otp_data.phone_number,
+            phone_number=phone_number,
             status='failed',
             failure_reason='User not found',
             ip_address=ip_address,
@@ -328,7 +352,7 @@ def verify_otp(otp_data: schemas.OtpRequest, request: Request, db: Session = Dep
     login_log = analytics_models.LoginHistory(
         user_id=user.id,
         user_type='user',
-        phone_number=otp_data.phone_number,
+        phone_number=phone_number,
         status='success',
         ip_address=ip_address,
         user_agent=user_agent
@@ -445,6 +469,9 @@ async def register_individual(
     """
     Регистрация физического лица с проверкой OTP
     """
+    # Normalize phone number
+    phone_number = normalize_phone_number(phone_number)
+
     # Validate OTP if provided
     if otp_code:
         # Trim whitespace from OTP code
@@ -553,6 +580,9 @@ def register_organization(
     """
     Регистрация организации с проверкой OTP
     """
+    # Normalize phone number
+    phone_number = normalize_phone_number(org_data.phone_number)
+
     # Validate OTP if provided
     if org_data.otp_code:
         # Trim whitespace from OTP code
@@ -560,7 +590,7 @@ def register_organization(
 
         # Check for valid OTP code
         otp_record = db.query(models.OtpCode).filter(
-            models.OtpCode.phone_number == org_data.phone_number,
+            models.OtpCode.phone_number == phone_number,
             models.OtpCode.is_used == False,
             models.OtpCode.expires_at > datetime.utcnow()
         ).first()
@@ -587,7 +617,7 @@ def register_organization(
 
     # Ищем существующего пользователя
     existing_user = db.query(models.User).filter(
-        models.User.phone_number == org_data.phone_number
+        models.User.phone_number == phone_number
     ).first()
 
     if existing_user:
@@ -609,7 +639,7 @@ def register_organization(
     else:
         # Создаем нового пользователя
         new_user = models.User(
-            phone_number=org_data.phone_number,
+            phone_number=phone_number,
             user_type="organization"
         )
         db.add(new_user)
