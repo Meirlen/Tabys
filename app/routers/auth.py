@@ -3,6 +3,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app import models, schemas, oauth2, analytics_models
+from app.config import settings
 from datetime import datetime, timedelta
 import os
 import uuid
@@ -260,7 +261,10 @@ def verify_otp(otp_data: schemas.OtpRequest, request: Request, db: Session = Dep
         )
 
 
-    if otp_data.code != "950826":
+    # Check if bypass code is used (if bypass is enabled)
+    is_bypass_code = settings.otp_bypass_enabled and otp_data.code == settings.otp_bypass_code
+
+    if not is_bypass_code:
         # Проверяем правильность кода
         if otp_record.code != otp_data.code:
             # Log failed login - invalid OTP code
@@ -280,6 +284,8 @@ def verify_otp(otp_data: schemas.OtpRequest, request: Request, db: Session = Dep
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Неверный OTP код"
             )
+    else:
+        print(f"DEBUG: Bypass OTP code used for {otp_data.phone_number}")
 
     # Помечаем код как использованный
     otp_record.is_used = True
