@@ -312,9 +312,9 @@ def verify_otp(otp_data: schemas.OtpRequest, request: Request, db: Session = Dep
                 detail="Неверный OTP код"
             )
 
-    print(f"DEBUG: OTP code validated successfully")
+        print(f"DEBUG: OTP code validated successfully")
     else:
-        print(f"DEBUG: Bypass OTP code used for {otp_data.phone_number}")
+        print(f"DEBUG: Bypass OTP code used for {phone_number}")
 
     # Помечаем код как использованный
     otp_record.is_used = True
