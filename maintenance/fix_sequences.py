@@ -14,7 +14,7 @@ def get_db_config():
     return {
         'user': os.getenv('POSTGRES_USER', 'postgres'),
         'database': os.getenv('POSTGRES_DB', 'alem'),
-        'container': 'tabys-postgres-1'
+        'container': 'tabys_postgres_1'
     }
 
 def run_psql_command(container: str, user: str, database: str, sql: str) -> Tuple[bool, str]:

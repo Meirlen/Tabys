@@ -5,7 +5,7 @@
 
 echo "Fixing all PostgreSQL sequences..."
 
-docker exec -i tabys-postgres-1 psql -U postgres -d alem << SQL
+docker exec -i tabys_postgres_1 psql -U postgres -d alem << SQL
 -- Reset all sequences to match their table data
 DO \$\$
 DECLARE
