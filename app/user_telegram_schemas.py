@@ -21,6 +21,8 @@ class ConfirmLinkResponse(BaseModel):
     success: bool
     message: str
     user_id: Optional[int] = None
+    access_token: Optional[str] = None
+    user_name: Optional[str] = None
 
 
 class TelegramStatusResponse(BaseModel):
@@ -29,6 +31,7 @@ class TelegramStatusResponse(BaseModel):
     telegram_first_name: Optional[str] = None
     linked_at: Optional[datetime] = None
     has_pending_token: bool = False
+    bot_username: Optional[str] = None
 
 
 class MessageResponse(BaseModel):

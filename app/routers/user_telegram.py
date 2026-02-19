@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.oauth2 import get_current_user
+from app.oauth2 import get_current_user, create_access_token
 from app import models
 from app.user_telegram_models import UserTelegramLink
 from app.user_telegram_schemas import (
@@ -116,10 +116,19 @@ def confirm_link(
     )
     db.commit()
 
+    user = db.query(models.User).filter(models.User.id == link_record.user_id).first()
+    access_token = None
+    user_name = None
+    if user:
+        access_token = create_access_token(data={"user_id": str(user.id)})
+        user_name = user.phone_number
+
     return ConfirmLinkResponse(
         success=True,
         message="Telegram account linked successfully",
         user_id=link_record.user_id,
+        access_token=access_token,
+        user_name=user_name,
     )
 
 
@@ -128,6 +137,7 @@ def get_telegram_status(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    settings = get_settings()
     link_record = (
         db.query(UserTelegramLink)
         .filter(UserTelegramLink.user_id == current_user.id)
@@ -135,7 +145,10 @@ def get_telegram_status(
     )
 
     if not link_record:
-        return TelegramStatusResponse(is_linked=False)
+        return TelegramStatusResponse(
+            is_linked=False,
+            bot_username=settings.TELEGRAM_BOT_USERNAME or None,
+        )
 
     return TelegramStatusResponse(
         is_linked=link_record.is_linked,
@@ -143,6 +156,7 @@ def get_telegram_status(
         telegram_first_name=link_record.telegram_first_name if link_record.is_linked else None,
         linked_at=link_record.linked_at,
         has_pending_token=link_record.link_token is not None and link_record.is_token_valid(),
+        bot_username=settings.TELEGRAM_BOT_USERNAME or None,
     )
 
 
@@ -167,3 +181,43 @@ def unlink_telegram(
     db.commit()
 
     return MessageResponse(message="Telegram account unlinked successfully")
+
+
+@router.get("/auto-auth/{telegram_chat_id}")
+def auto_auth_telegram(
+    telegram_chat_id: str,
+    x_bot_secret: str = Header(..., alias="X-Bot-Secret"),
+    db: Session = Depends(get_db),
+):
+    settings = get_settings()
+    if x_bot_secret != settings.TELEGRAM_BOT_LINK_SECRET:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid bot secret",
+        )
+
+    link_record = (
+        db.query(UserTelegramLink)
+        .filter(
+            UserTelegramLink.telegram_chat_id == telegram_chat_id,
+            UserTelegramLink.is_linked == True,
+        )
+        .first()
+    )
+
+    if not link_record:
+        return {"found": False}
+
+    user = db.query(models.User).filter(models.User.id == link_record.user_id).first()
+    if not user:
+        return {"found": False}
+
+    access_token = create_access_token(data={"user_id": str(user.id)})
+
+    return {
+        "found": True,
+        "user_id": user.id,
+        "user_name": user.phone_number,
+        "access_token": access_token,
+        "role": "client",
+    }
