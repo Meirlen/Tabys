@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     telegram_bot_token: str = ""  # Optional: for broadcast messaging
     TELEGRAM_BOT_USERNAME: str = ""  # Bot username for deep link (without @)
     TELEGRAM_BOT_LINK_SECRET: str = ""  # Shared secret between bot and backend
+    PARSER_SECRET: str = ""  # Secret for Telegram vacancy parser endpoint
 
     # Resend API configuration for email notifications
     RESEND_API_KEY: str = ""  # Resend API key

@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.database import SessionLocal
 from app import news_models
 from app.publication_config import SCHEDULER_INTERVAL_MINUTES
+from app.notification_service import notify_interested_users_for_content
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -62,6 +63,24 @@ def publish_scheduled_news(db: Session) -> int:
             published_count += 1
 
             logger.info(f"Published news article ID={news.id}, title='{news.title_kz or news.title_ru}'")
+
+            # Notify interested users (import settings lazily to avoid circular imports)
+            try:
+                from config import get_settings
+                settings = get_settings()
+                notify_interested_users_for_content(
+                    db=db,
+                    content_type="news",
+                    category_value=news.category,
+                    title_kz=news.title_kz or news.title_ru or "",
+                    title_ru=news.title_ru or news.title_kz or "",
+                    message_kz=f"Жаңа жаңалық жарияланды: {news.title_kz or news.title_ru or ''}",
+                    message_ru=f"Опубликована новая новость: {news.title_ru or news.title_kz or ''}",
+                    entity_id=news.id,
+                    telegram_bot_token=settings.telegram_bot_token,
+                )
+            except Exception as notify_err:
+                logger.warning(f"Could not send interest notifications for news ID={news.id}: {notify_err}")
 
         except Exception as e:
             db.rollback()

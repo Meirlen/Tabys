@@ -136,6 +136,8 @@ class Vacancy(Base):
     moderated_by = Column(Integer, nullable=True)  # Admin ID who performed moderation
     moderation_comment = Column(Text, nullable=True)  # Optional comment/reason for rejection
     is_admin_created = Column(Boolean, default=False, nullable=False)  # True if created by administrator/super_admin
+    source_channel = Column(String, nullable=True)  # e.g. "emo_karaganda_obl" — set by parser
+    source_message_id = Column(Integer, nullable=True)  # Telegram message ID — set by parser
 
 
 class VacancyApplication(Base):

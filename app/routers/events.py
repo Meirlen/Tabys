@@ -20,6 +20,8 @@ from app import crud, models
 from app.utils import send_email
 from app.oauth2 import get_current_user, get_current_admin
 from app.rbac import Module, Permission, require_module_access, require_permission, apply_owner_filter
+from app.notification_service import notify_interested_users_for_content
+from config import get_settings
 
 router = APIRouter(prefix="/api/v2/events", tags=["Events"])
 
@@ -486,6 +488,7 @@ def get_all_events_with_status(
 @router.post("/admin/moderation/{event_id}/approve", response_model=EventDetail)
 def approve_event(
     event_id: int,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_admin: models.Admin = Depends(require_permission(Module.EVENTS, Permission.UPDATE))
 ):
@@ -500,6 +503,21 @@ def approve_event(
 
     db.commit()
     db.refresh(event)
+
+    settings = get_settings()
+    background_tasks.add_task(
+        notify_interested_users_for_content,
+        db=db,
+        content_type="events",
+        category_value=None,
+        title_kz=event.title or "",
+        title_ru=event.title or "",
+        message_kz=f"Жаңа іс-шара жарияланды: {event.title or ''}",
+        message_ru=f"Опубликовано новое мероприятие: {event.title or ''}",
+        entity_id=event.id,
+        telegram_bot_token=settings.telegram_bot_token,
+    )
+
     return event
 
 

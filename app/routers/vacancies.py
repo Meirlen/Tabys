@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, status, Query, Response, BackgroundTasks, HTTPException
+from fastapi import APIRouter, Depends, status, Query, Response, BackgroundTasks, HTTPException, Header
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.database import get_db
@@ -9,13 +9,15 @@ from app.schemas import (
     VacancyUpdate,
     VacancyApplicationCreate,
     VacancyApplicationUpdate,
+    VacancyParserCreate,
 )
 from app import crud
 from app.utils import send_email
 from app.oauth2 import get_current_user
-from app.notification_service import create_notification
+from app.notification_service import create_notification, notify_interested_users_for_content
 from app import models, resume_models
 from datetime import datetime
+from config import get_settings
 
 router = APIRouter(prefix="/api/v2/vacancies", tags=["Vacancies"])
 
@@ -775,6 +777,7 @@ def get_all_vacancies_with_status(
 @router.post("/admin/moderation/{vacancy_id}/approve", response_model=VacancyDetail)
 def approve_vacancy(
     vacancy_id: int,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_admin: models.Admin = Depends(require_permission(Module.VACANCIES, Permission.UPDATE))
 ):
@@ -789,6 +792,30 @@ def approve_vacancy(
 
     db.commit()
     db.refresh(vacancy)
+
+    # Resolve profession category for filtering
+    profession_category = None
+    if vacancy.profession_id:
+        profession = db.query(resume_models.Profession).filter(
+            resume_models.Profession.id == vacancy.profession_id
+        ).first()
+        if profession:
+            profession_category = profession.category
+
+    settings = get_settings()
+    background_tasks.add_task(
+        notify_interested_users_for_content,
+        db=db,
+        content_type="vacancies",
+        category_value=profession_category,
+        title_kz=vacancy.title_kz or vacancy.title_ru or "",
+        title_ru=vacancy.title_ru or vacancy.title_kz or "",
+        message_kz=f"Жаңа вакансия жарияланды: {vacancy.title_kz or vacancy.title_ru or ''}",
+        message_ru=f"Опубликована новая вакансия: {vacancy.title_ru or vacancy.title_kz or ''}",
+        entity_id=vacancy.id,
+        telegram_bot_token=settings.telegram_bot_token,
+    )
+
     return vacancy
 
 
@@ -809,4 +836,28 @@ def reject_vacancy(
 
     db.commit()
     db.refresh(vacancy)
+
+
+# ===================== PARSER ENDPOINT =====================
+
+@router.post("/parser/submit", status_code=status.HTTP_201_CREATED, tags=["Vacancies Parser"])
+def submit_vacancy_from_parser(
+    vacancy: VacancyParserCreate,
+    x_parser_secret: Optional[str] = Header(None),
+    db: Session = Depends(get_db),
+):
+    """Принять вакансию от Telegram-парсера.
+
+    Аутентификация через заголовок X-Parser-Secret.
+    Вакансия автоматически помечается как одобренная (moderation_status='approved').
+    """
+    settings = get_settings()
+    if not settings.PARSER_SECRET or x_parser_secret != settings.PARSER_SECRET:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid or missing parser secret",
+        )
+
+    db_vacancy = crud.create_vacancy_from_parser(db=db, vacancy=vacancy)
+    return {"id": db_vacancy.id}
     return vacancy

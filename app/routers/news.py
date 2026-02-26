@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, func
 from typing import List, Optional
@@ -7,6 +7,8 @@ import logging
 from app.database import get_db
 from app import news_models, news_schemas, models, oauth2
 from app.publication_config import PUBLICATION_SLOTS, SLOT_WINDOW_MINUTES
+from app.notification_service import notify_interested_users_for_content
+from config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -103,6 +105,7 @@ def increment_news_view(
 @admin_router.post("/", response_model=news_schemas.NewsResponse, status_code=status.HTTP_201_CREATED)
 def create_news(
     news: news_schemas.NewsCreate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_admin: models.Admin = Depends(oauth2.get_current_admin)
 ):
@@ -150,12 +153,29 @@ def create_news(
 
     logger.info(f"Admin {current_admin.id} created news ID={new_news.id} with status={status_value}")
 
+    # Notify interested users when news is immediately published
+    if status_value == 'published':
+        settings = get_settings()
+        background_tasks.add_task(
+            notify_interested_users_for_content,
+            db=db,
+            content_type="news",
+            category_value=new_news.category,
+            title_kz=new_news.title_kz or new_news.title_ru or "",
+            title_ru=new_news.title_ru or new_news.title_kz or "",
+            message_kz=f"Жаңа жаңалық жарияланды: {new_news.title_kz or new_news.title_ru or ''}",
+            message_ru=f"Опубликована новая новость: {new_news.title_ru or new_news.title_kz or ''}",
+            entity_id=new_news.id,
+            telegram_bot_token=settings.telegram_bot_token,
+        )
+
     return new_news
 
 @admin_router.put("/{id}", response_model=news_schemas.NewsResponse)
 def update_news(
     id: int,
     news_update: news_schemas.NewsUpdate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_admin: models.Admin = Depends(oauth2.get_current_admin)
 ):
@@ -174,6 +194,7 @@ def update_news(
     if not news_item:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="News not found")
 
+    prev_status = news_item.status
     update_data = news_update.dict(exclude_unset=True)
 
     # Handle status changes
@@ -207,6 +228,23 @@ def update_news(
     db.refresh(news_item)
 
     logger.info(f"Admin {current_admin.id} updated news ID={id}")
+
+    # Notify interested users when a draft/scheduled is transitioned to published
+    if new_status == 'published' and prev_status != 'published':
+        final_category = update_data.get('category', news_item.category)
+        settings = get_settings()
+        background_tasks.add_task(
+            notify_interested_users_for_content,
+            db=db,
+            content_type="news",
+            category_value=final_category,
+            title_kz=news_item.title_kz or news_item.title_ru or "",
+            title_ru=news_item.title_ru or news_item.title_kz or "",
+            message_kz=f"Жаңа жаңалық жарияланды: {news_item.title_kz or news_item.title_ru or ''}",
+            message_ru=f"Опубликована новая новость: {news_item.title_ru or news_item.title_kz or ''}",
+            entity_id=news_item.id,
+            telegram_bot_token=settings.telegram_bot_token,
+        )
 
     return news_item
 
@@ -312,6 +350,7 @@ def get_top_news_by_views(
 @admin_router.post("/{id}/approve", response_model=news_schemas.NewsResponse)
 def approve_news(
     id: int,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_admin: models.Admin = Depends(oauth2.get_current_admin)
 ):
@@ -327,6 +366,21 @@ def approve_news(
 
     db.commit()
     db.refresh(news_item)
+
+    settings = get_settings()
+    background_tasks.add_task(
+        notify_interested_users_for_content,
+        db=db,
+        content_type="news",
+        category_value=news_item.category,
+        title_kz=news_item.title_kz or news_item.title_ru or "",
+        title_ru=news_item.title_ru or news_item.title_kz or "",
+        message_kz=f"Жаңа жаңалық жарияланды: {news_item.title_kz or news_item.title_ru or ''}",
+        message_ru=f"Опубликована новая новость: {news_item.title_ru or news_item.title_kz or ''}",
+        entity_id=news_item.id,
+        telegram_bot_token=settings.telegram_bot_token,
+    )
+
     return news_item
 
 @admin_router.post("/{id}/reject", response_model=news_schemas.NewsResponse)

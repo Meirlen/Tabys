@@ -1867,6 +1867,54 @@ def get_user(db: Session, user_id: int) -> Optional[User]:
 
 
 # Получение курса по ID
+def create_vacancy_from_parser(db: Session, vacancy: schemas.VacancyParserCreate):
+    """Создание вакансии через Telegram-парсер.
+
+    Автоматически проставляет moderation_status='approved' и is_admin_created=True.
+    Если передан city_name — ищет город по названию (ILIKE) в cities.name_ru / name_kz.
+    """
+    city_id = None
+    if vacancy.city_name:
+        city = db.query(resume_models.City).filter(
+            or_(
+                resume_models.City.name_ru.ilike(f"%{vacancy.city_name}%"),
+                resume_models.City.name_kz.ilike(f"%{vacancy.city_name}%"),
+            )
+        ).first()
+        if city:
+            city_id = city.id
+
+    db_vacancy = models.Vacancy(
+        profession_id=None,
+        city_id=city_id,
+        title_kz=vacancy.title_kz,
+        title_ru=vacancy.title_ru,
+        description_kz=vacancy.description_kz,
+        description_ru=vacancy.description_ru,
+        requirements_kz=vacancy.requirements_kz,
+        requirements_ru=vacancy.requirements_ru,
+        employment_type=vacancy.employment_type,
+        work_type=vacancy.work_type,
+        salary_min=vacancy.salary_min,
+        salary_max=vacancy.salary_max,
+        contact_phone=vacancy.contact_phone,
+        contact_email=vacancy.contact_email,
+        company_name=vacancy.company_name,
+        source_channel=vacancy.source_channel,
+        source_message_id=vacancy.source_message_id,
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
+        moderation_status='approved',
+        is_admin_created=True,
+        moderated_at=datetime.utcnow(),
+    )
+
+    db.add(db_vacancy)
+    db.commit()
+    db.refresh(db_vacancy)
+    return db_vacancy
+
+
 def get_course(db: Session, course_id: int) -> Optional[Course]:
     """
     Получение курса по ID

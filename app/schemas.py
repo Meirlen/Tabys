@@ -649,6 +649,28 @@ class VacancyDetail(BaseModel):
         from_attributes = True
 
 
+# ========== СХЕМА ДЛЯ ПАРСЕРА ВАКАНСИЙ ==========
+
+class VacancyParserCreate(BaseModel):
+    """Создание вакансии через Telegram-парсер (без обязательных profession_id/city_id)"""
+    title_kz: str
+    title_ru: str
+    description_kz: str
+    description_ru: str
+    requirements_kz: Optional[str] = None
+    requirements_ru: Optional[str] = None
+    employment_type: Optional[str] = None
+    work_type: Optional[str] = None
+    salary_min: Optional[int] = None
+    salary_max: Optional[int] = None
+    contact_phone: Optional[str] = None
+    contact_email: Optional[str] = None
+    company_name: Optional[str] = None
+    city_name: Optional[str] = None       # resolved to city_id via DB lookup
+    source_channel: Optional[str] = None  # e.g. "emo_karaganda_obl"
+    source_message_id: Optional[int] = None
+
+
 # ========== СХЕМЫ ДЛЯ ОТКЛИКОВ ==========
 
 class VacancyApplicationCreate(BaseModel):

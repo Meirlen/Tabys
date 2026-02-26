@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status, UploadFile, File, Form
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
@@ -20,7 +20,8 @@ from typing import List, Optional
 import os
 import uuid
 from datetime import datetime
-from app.notification_service import create_notification
+from app.notification_service import create_notification, notify_interested_users_for_content
+from config import get_settings
 
 router = APIRouter(prefix="/api/v2/projects", tags=["Projects"])
 
@@ -2021,6 +2022,7 @@ def get_all_projects_with_status(
 @router.post("/admin/moderation/{project_id}/approve", response_model=ProjectResponse)
 def approve_project(
     project_id: int,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_admin: models.Admin = Depends(require_permission(Module.PROJECTS, Permission.UPDATE))
 ):
@@ -2042,6 +2044,21 @@ def approve_project(
 
     db.commit()
     db.refresh(project)
+
+    settings = get_settings()
+    background_tasks.add_task(
+        notify_interested_users_for_content,
+        db=db,
+        content_type="projects",
+        category_value=None,
+        title_kz=project.title or project.title_ru or "",
+        title_ru=project.title_ru or project.title or "",
+        message_kz=f"Жаңа жоба жарияланды: {project.title or project.title_ru or ''}",
+        message_ru=f"Опубликован новый проект: {project.title_ru or project.title or ''}",
+        entity_id=project.id,
+        telegram_bot_token=settings.telegram_bot_token,
+    )
+
     return project
 
 

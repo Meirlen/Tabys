@@ -9,6 +9,8 @@ from app import crud, models
 from app.utils import send_email, validate_file_extension, save_upload_file
 from app.oauth2 import get_current_user
 from app.rbac import Module, Permission, require_permission, require_module_access
+from app.notification_service import notify_interested_users_for_content
+from config import get_settings
 from datetime import datetime
 import os
 
@@ -909,6 +911,7 @@ def get_all_courses_with_status(
 @router.post("/admin/moderation/{course_id}/approve", response_model=CourseDetail)
 def approve_course(
     course_id: int,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_admin: models.Admin = Depends(require_permission(Module.COURSES, Permission.UPDATE))
 ):
@@ -926,6 +929,26 @@ def approve_course(
 
     db.commit()
     db.refresh(course)
+
+    # Get the first category name for filtering (notify once per category)
+    category_name = None
+    if course.categories:
+        category_name = course.categories[0].name
+
+    settings = get_settings()
+    background_tasks.add_task(
+        notify_interested_users_for_content,
+        db=db,
+        content_type="courses",
+        category_value=category_name,
+        title_kz=course.title or "",
+        title_ru=course.title or "",
+        message_kz=f"Жаңа курс жарияланды: {course.title or ''}",
+        message_ru=f"Опубликован новый курс: {course.title or ''}",
+        entity_id=course.id,
+        telegram_bot_token=settings.telegram_bot_token,
+    )
+
     return course
 
 
