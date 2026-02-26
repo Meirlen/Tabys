@@ -858,6 +858,16 @@ def submit_vacancy_from_parser(
             detail="Invalid or missing parser secret",
         )
 
+    if vacancy.source_channel and vacancy.source_message_id is not None:
+        existing = db.query(models.Vacancy).filter(
+            models.Vacancy.source_channel == vacancy.source_channel,
+            models.Vacancy.source_message_id == vacancy.source_message_id,
+        ).first()
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Vacancy from {vacancy.source_channel}/{vacancy.source_message_id} already exists (id={existing.id})",
+            )
+
     db_vacancy = crud.create_vacancy_from_parser(db=db, vacancy=vacancy)
     return {"id": db_vacancy.id}
-    return vacancy

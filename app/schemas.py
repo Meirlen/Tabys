@@ -645,6 +645,10 @@ class VacancyDetail(BaseModel):
     moderation_comment: Optional[str] = None
     is_admin_created: bool = False
 
+    # Parser fields
+    source_channel: Optional[str] = None
+    source_message_id: Optional[int] = None
+
     class Config:
         from_attributes = True
 
