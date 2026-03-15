@@ -323,7 +323,7 @@ async def update_course(
         cover_image: Optional[UploadFile] = File(None),
         video_preview: Optional[str] = Form(None),  # Изменено с File на Form
         db: Session = Depends(get_db),
-        current_user=Depends(get_current_user)
+        # current_user=Depends(get_current_user)
 ):
     """
     Обновление существующего курса (только для автора курса или администратора)
@@ -461,7 +461,7 @@ def update_course_status(
 def delete_course(
         course_id: int,
         db: Session = Depends(get_db),
-        current_user=Depends(get_current_user)
+        # current_user=Depends(get_current_user)
 ):
     """
     Удаление курса (только для автора курса или администратора)
