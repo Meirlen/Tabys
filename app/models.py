@@ -316,6 +316,7 @@ class CourseChapter(Base):
     course_id = Column(Integer, ForeignKey("courses.id"), nullable=False)
     title = Column(String, nullable=False)
     order = Column(Integer, nullable=False)  # Порядок отображения
+    description = Column(Text, nullable=True)
 
     # Связи
     course = relationship("Course", back_populates="chapters")
@@ -415,6 +416,34 @@ class CourseTestResult(Base):
     # Связи
     enrollment = relationship("CourseEnrollment", back_populates="test_results")
     test = relationship("CourseTest")
+
+
+class Homework(Base):
+    __tablename__ = "course_homeworks"
+    id          = Column(Integer, primary_key=True, index=True)
+    lesson_id   = Column(Integer, ForeignKey("course_lessons.id"),  nullable=True)
+    chapter_id  = Column(Integer, ForeignKey("course_chapters.id"), nullable=True)
+    title       = Column(String, nullable=False)
+    description = Column(Text,   nullable=True)
+    created_at  = Column(DateTime, default=datetime.utcnow)
+    lesson   = relationship("CourseLesson",  backref="homework", foreign_keys=[lesson_id])
+    chapter  = relationship("CourseChapter", backref="homework", foreign_keys=[chapter_id])
+    submissions = relationship("HomeworkSubmission", back_populates="homework",
+                               cascade="all, delete-orphan")
+
+
+class HomeworkSubmission(Base):
+    __tablename__ = "homework_submissions"
+    id          = Column(Integer, primary_key=True, index=True)
+    homework_id = Column(Integer, ForeignKey("course_homeworks.id"), nullable=False)
+    user_id     = Column(Integer, nullable=False)
+    file_url    = Column(String,  nullable=False)
+    submitted_at = Column(DateTime, default=datetime.utcnow)
+    score       = Column(Integer, nullable=True)
+    feedback    = Column(Text,    nullable=True)
+    graded_at   = Column(DateTime, nullable=True)
+    graded_by   = Column(Integer, nullable=True)
+    homework    = relationship("Homework", back_populates="submissions")
 
 
 class User(Base):

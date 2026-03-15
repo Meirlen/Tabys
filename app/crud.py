@@ -96,6 +96,7 @@ def create_collaboration_request(db: Session, expert_id: int, request: schemas.C
     db.commit()
     db.refresh(db_request)
     return db_request
+    
 
 
 def update_collaboration_request_status(db: Session, request_id: str, status: str):
@@ -1058,11 +1059,14 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime
 from app.models import (
     Course, CourseCategory, CourseChapter, CourseLesson, CourseTest, CourseTestAnswer,
-    CourseEnrollment, CourseLessonProgress, CourseTestResult, course_category, User
+    CourseEnrollment, CourseLessonProgress, CourseTestResult, course_category, User,
+    Homework, HomeworkSubmission
 )
 from app.schemas import (
     CourseCreate, CourseUpdate, CourseFilter, CourseCategoryCreate,
-    CourseChapterCreate, CourseLessonCreate, CourseTestCreate
+    CourseChapterCreate, CourseLessonCreate, CourseTestCreate,
+    CourseChapterUpdate, CourseLessonUpdate, CourseTestUpdate,
+    ReorderRequest, HomeworkCreate, HomeworkUpdate, HomeworkGrade
 )
 
 
@@ -1430,6 +1434,206 @@ def add_test_to_lesson(db: Session, lesson_id: int, test: CourseTestCreate) -> C
     db_course = db.query(Course).filter(Course.id == db_chapter.course_id).first()
     db.refresh(db_course)
     return db_course
+
+
+# ========== Операции обновления/удаления глав ==========
+
+def update_chapter(db: Session, chapter_id: int, chapter_update: CourseChapterUpdate) -> Optional[CourseChapter]:
+    """Обновление главы курса"""
+    db_chapter = db.query(CourseChapter).filter(CourseChapter.id == chapter_id).first()
+    if not db_chapter:
+        return None
+    update_data = chapter_update.dict(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(db_chapter, field, value)
+    db.commit()
+    db.refresh(db_chapter)
+    return db_chapter
+
+
+def delete_chapter(db: Session, chapter_id: int) -> bool:
+    """Удаление главы курса"""
+    db_chapter = db.query(CourseChapter).filter(CourseChapter.id == chapter_id).first()
+    if not db_chapter:
+        return False
+    db.delete(db_chapter)
+    db.commit()
+    return True
+
+
+# ========== Операции обновления/удаления уроков ==========
+
+def update_lesson(db: Session, lesson_id: int, lesson_update: CourseLessonUpdate) -> Optional[CourseLesson]:
+    """Обновление урока"""
+    db_lesson = db.query(CourseLesson).filter(CourseLesson.id == lesson_id).first()
+    if not db_lesson:
+        return None
+    update_data = lesson_update.dict(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(db_lesson, field, value)
+    db.commit()
+    db.refresh(db_lesson)
+    return db_lesson
+
+
+def delete_lesson(db: Session, lesson_id: int) -> bool:
+    """Удаление урока"""
+    db_lesson = db.query(CourseLesson).filter(CourseLesson.id == lesson_id).first()
+    if not db_lesson:
+        return False
+    db.delete(db_lesson)
+    db.commit()
+    return True
+
+
+# ========== Операции обновления/удаления тестов ==========
+
+def update_test(db: Session, test_id: int, test_update: CourseTestUpdate) -> Optional[CourseTest]:
+    """Обновление теста"""
+    db_test = db.query(CourseTest).filter(CourseTest.id == test_id).first()
+    if not db_test:
+        return None
+    update_data = test_update.dict(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(db_test, field, value)
+    db.commit()
+    db.refresh(db_test)
+    return db_test
+
+
+def delete_test(db: Session, test_id: int) -> bool:
+    """Удаление теста"""
+    db_test = db.query(CourseTest).filter(CourseTest.id == test_id).first()
+    if not db_test:
+        return False
+    db.delete(db_test)
+    db.commit()
+    return True
+
+
+# ========== Операции переупорядочивания ==========
+
+def reorder_chapters(db: Session, course_id: int, reorder: ReorderRequest) -> Optional[Course]:
+    """Переупорядочивание глав курса"""
+    db_course = db.query(Course).filter(Course.id == course_id).first()
+    if not db_course:
+        return None
+    for item in reorder.items:
+        db_chapter = db.query(CourseChapter).filter(
+            CourseChapter.id == item.id,
+            CourseChapter.course_id == course_id
+        ).first()
+        if db_chapter:
+            db_chapter.order = item.order
+    db.commit()
+    db.refresh(db_course)
+    return db_course
+
+
+def reorder_lessons(db: Session, chapter_id: int, reorder: ReorderRequest) -> Optional[CourseChapter]:
+    """Переупорядочивание уроков главы"""
+    db_chapter = db.query(CourseChapter).filter(CourseChapter.id == chapter_id).first()
+    if not db_chapter:
+        return None
+    for item in reorder.items:
+        db_lesson = db.query(CourseLesson).filter(
+            CourseLesson.id == item.id,
+            CourseLesson.chapter_id == chapter_id
+        ).first()
+        if db_lesson:
+            db_lesson.order = item.order
+    db.commit()
+    db.refresh(db_chapter)
+    return db_chapter
+
+
+# ========== Операции с домашними заданиями ==========
+
+def create_homework(db: Session, homework: HomeworkCreate) -> Homework:
+    """Создание домашнего задания"""
+    db_homework = Homework(
+        lesson_id=homework.lesson_id,
+        chapter_id=homework.chapter_id,
+        title=homework.title,
+        description=homework.description
+    )
+    db.add(db_homework)
+    db.commit()
+    db.refresh(db_homework)
+    return db_homework
+
+
+def get_homework(db: Session, homework_id: int) -> Optional[Homework]:
+    """Получение домашнего задания по ID"""
+    return db.query(Homework).filter(Homework.id == homework_id).first()
+
+
+def update_homework(db: Session, homework_id: int, homework_update: HomeworkUpdate) -> Optional[Homework]:
+    """Обновление домашнего задания"""
+    db_homework = db.query(Homework).filter(Homework.id == homework_id).first()
+    if not db_homework:
+        return None
+    update_data = homework_update.dict(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(db_homework, field, value)
+    db.commit()
+    db.refresh(db_homework)
+    return db_homework
+
+
+def delete_homework(db: Session, homework_id: int) -> bool:
+    """Удаление домашнего задания"""
+    db_homework = db.query(Homework).filter(Homework.id == homework_id).first()
+    if not db_homework:
+        return False
+    db.delete(db_homework)
+    db.commit()
+    return True
+
+
+def submit_homework(db: Session, homework_id: int, user_id: int, file_url: str) -> HomeworkSubmission:
+    """Сдача домашнего задания студентом"""
+    db_submission = HomeworkSubmission(
+        homework_id=homework_id,
+        user_id=user_id,
+        file_url=file_url
+    )
+    db.add(db_submission)
+    db.commit()
+    db.refresh(db_submission)
+    return db_submission
+
+
+def get_submissions_for_homework(db: Session, homework_id: int) -> List[HomeworkSubmission]:
+    """Получение всех сданных работ по домашнему заданию"""
+    return db.query(HomeworkSubmission).filter(HomeworkSubmission.homework_id == homework_id).all()
+
+
+def get_latest_submission_for_user(db: Session, homework_id: int, user_id: int) -> Optional[HomeworkSubmission]:
+    """Получение последней сданной работы пользователя по домашнему заданию"""
+    return (
+        db.query(HomeworkSubmission)
+        .filter(
+            HomeworkSubmission.homework_id == homework_id,
+            HomeworkSubmission.user_id == user_id
+        )
+        .order_by(HomeworkSubmission.submitted_at.desc())
+        .first()
+    )
+
+
+def grade_submission(db: Session, submission_id: int, grade: HomeworkGrade, graded_by: int) -> Optional[HomeworkSubmission]:
+    """Оценка сданной работы"""
+    db_submission = db.query(HomeworkSubmission).filter(HomeworkSubmission.id == submission_id).first()
+    if not db_submission:
+        return None
+    db_submission.score = grade.score
+    db_submission.feedback = grade.feedback
+    db_submission.graded_at = datetime.utcnow()
+    db_submission.graded_by = graded_by
+    db.commit()
+    db.refresh(db_submission)
+    return db_submission
 
 
 # Операции с записями на курсы

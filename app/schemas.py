@@ -969,6 +969,7 @@ class CourseLesson(CourseLessonBase):
     id: int
     chapter_id: int
     tests: List[CourseTest] = []
+    homework: Optional[Any] = None
 
     class Config:
         from_attributes = True
@@ -978,6 +979,7 @@ class CourseLesson(CourseLessonBase):
 class CourseChapterBase(BaseModel):
     title: str
     order: int
+    description: Optional[str] = None
 
 class LoginUserSchema(BaseModel):
     phone_number: str
@@ -992,6 +994,7 @@ class CourseChapter(CourseChapterBase):
     id: int
     course_id: int
     lessons: List[CourseLesson] = []
+    homework: Optional[Any] = None
 
     class Config:
         from_attributes = True
@@ -1158,6 +1161,85 @@ class CourseEnrollmentWithCourse(BaseModel):
     class Config:
         from_attributes = True
 
+
+# ========== UPDATE SCHEMAS ==========
+
+class CourseChapterUpdate(BaseModel):
+    title: Optional[str] = None
+    order: Optional[int] = None
+    description: Optional[str] = None
+
+
+class CourseLessonUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    video_url: Optional[str] = None
+    order: Optional[int] = None
+
+
+class CourseTestUpdate(BaseModel):
+    question: Optional[str] = None
+    image: Optional[str] = None
+
+
+# ========== REORDER SCHEMAS ==========
+
+class ReorderItem(BaseModel):
+    id: int
+    order: int
+
+
+class ReorderRequest(BaseModel):
+    items: List[ReorderItem]
+
+
+# ========== HOMEWORK SCHEMAS ==========
+
+class HomeworkCreate(BaseModel):
+    title: str
+    description: Optional[str] = None
+    lesson_id: Optional[int] = None
+    chapter_id: Optional[int] = None
+
+
+class HomeworkUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    lesson_id: Optional[int] = None
+    chapter_id: Optional[int] = None
+
+
+class HomeworkSubmissionOut(BaseModel):
+    id: int
+    homework_id: int
+    user_id: int
+    file_url: str
+    submitted_at: datetime
+    score: Optional[int] = None
+    feedback: Optional[str] = None
+    graded_at: Optional[datetime] = None
+    graded_by: Optional[int] = None
+
+    class Config:
+        from_attributes = True
+
+
+class HomeworkOut(BaseModel):
+    id: int
+    lesson_id: Optional[int] = None
+    chapter_id: Optional[int] = None
+    title: str
+    description: Optional[str] = None
+    created_at: datetime
+    submissions: List[HomeworkSubmissionOut] = []
+
+    class Config:
+        from_attributes = True
+
+
+class HomeworkGrade(BaseModel):
+    score: int
+    feedback: Optional[str] = None
 
 
 from pydantic import BaseModel, Field

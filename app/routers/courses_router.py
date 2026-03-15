@@ -1117,4 +1117,403 @@ async def admin_update_course(
     return updated_course
 
 
+# ============================================
+# Chapter PUT/DELETE Endpoints
+# ============================================
+
+@router.put("/{course_id}/chapters/{chapter_id}", response_model=CourseChapter)
+def update_chapter(
+        course_id: int,
+        chapter_id: int,
+        chapter_data: CourseChapterUpdate,
+        db: Session = Depends(get_db),
+):
+    """
+    Обновление существующей главы курса
+    """
+    course = crud.get_course(db, course_id=course_id)
+    if not course:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Курс не найден")
+
+    chapter = crud.get_chapter(db, chapter_id=chapter_id)
+    if not chapter or chapter.course_id != course_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Глава не найдена")
+
+    updated_chapter = crud.update_chapter(db=db, chapter_id=chapter_id, chapter_update=chapter_data)
+    return updated_chapter
+
+
+@router.delete("/{course_id}/chapters/{chapter_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_chapter(
+        course_id: int,
+        chapter_id: int,
+        db: Session = Depends(get_db),
+):
+    """
+    Удаление главы курса
+    """
+    course = crud.get_course(db, course_id=course_id)
+    if not course:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Курс не найден")
+
+    chapter = crud.get_chapter(db, chapter_id=chapter_id)
+    if not chapter or chapter.course_id != course_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Глава не найдена")
+
+    crud.delete_chapter(db=db, chapter_id=chapter_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# ============================================
+# Lesson PUT/DELETE Endpoints
+# ============================================
+
+@router.put("/{course_id}/chapters/{chapter_id}/lessons/{lesson_id}", response_model=CourseLesson)
+def update_lesson(
+        course_id: int,
+        chapter_id: int,
+        lesson_id: int,
+        lesson_data: CourseLessonUpdate,
+        db: Session = Depends(get_db),
+):
+    """
+    Обновление существующего урока
+    """
+    course = crud.get_course(db, course_id=course_id)
+    if not course:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Курс не найден")
+
+    chapter = crud.get_chapter(db, chapter_id=chapter_id)
+    if not chapter or chapter.course_id != course_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Глава не найдена")
+
+    lesson = crud.get_lesson(db, lesson_id=lesson_id)
+    if not lesson or lesson.chapter_id != chapter_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Урок не найден")
+
+    updated_lesson = crud.update_lesson(db=db, lesson_id=lesson_id, lesson_update=lesson_data)
+    return updated_lesson
+
+
+@router.delete("/{course_id}/chapters/{chapter_id}/lessons/{lesson_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_lesson(
+        course_id: int,
+        chapter_id: int,
+        lesson_id: int,
+        db: Session = Depends(get_db),
+):
+    """
+    Удаление урока
+    """
+    course = crud.get_course(db, course_id=course_id)
+    if not course:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Курс не найден")
+
+    chapter = crud.get_chapter(db, chapter_id=chapter_id)
+    if not chapter or chapter.course_id != course_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Глава не найдена")
+
+    lesson = crud.get_lesson(db, lesson_id=lesson_id)
+    if not lesson or lesson.chapter_id != chapter_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Урок не найден")
+
+    crud.delete_lesson(db=db, lesson_id=lesson_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# ============================================
+# Test PUT/DELETE Endpoints
+# ============================================
+
+@router.put("/{course_id}/chapters/{chapter_id}/lessons/{lesson_id}/tests/{test_id}", response_model=CourseTest)
+def update_test(
+        course_id: int,
+        chapter_id: int,
+        lesson_id: int,
+        test_id: int,
+        test_data: CourseTestUpdate,
+        db: Session = Depends(get_db),
+):
+    """
+    Обновление существующего теста
+    """
+    course = crud.get_course(db, course_id=course_id)
+    if not course:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Курс не найден")
+
+    chapter = crud.get_chapter(db, chapter_id=chapter_id)
+    if not chapter or chapter.course_id != course_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Глава не найдена")
+
+    lesson = crud.get_lesson(db, lesson_id=lesson_id)
+    if not lesson or lesson.chapter_id != chapter_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Урок не найден")
+
+    test = crud.get_test(db, test_id=test_id)
+    if not test or test.lesson_id != lesson_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Тест не найден")
+
+    updated_test = crud.update_test(db=db, test_id=test_id, test_update=test_data)
+    return updated_test
+
+
+@router.delete("/{course_id}/chapters/{chapter_id}/lessons/{lesson_id}/tests/{test_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_test(
+        course_id: int,
+        chapter_id: int,
+        lesson_id: int,
+        test_id: int,
+        db: Session = Depends(get_db),
+):
+    """
+    Удаление теста
+    """
+    course = crud.get_course(db, course_id=course_id)
+    if not course:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Курс не найден")
+
+    chapter = crud.get_chapter(db, chapter_id=chapter_id)
+    if not chapter or chapter.course_id != course_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Глава не найдена")
+
+    lesson = crud.get_lesson(db, lesson_id=lesson_id)
+    if not lesson or lesson.chapter_id != chapter_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Урок не найден")
+
+    test = crud.get_test(db, test_id=test_id)
+    if not test or test.lesson_id != lesson_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Тест не найден")
+
+    crud.delete_test(db=db, test_id=test_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# ============================================
+# Reorder Endpoints
+# ============================================
+
+@router.put("/{course_id}/chapters/reorder", response_model=CourseDetail)
+def reorder_chapters(
+        course_id: int,
+        reorder_data: ReorderRequest,
+        db: Session = Depends(get_db),
+):
+    """
+    Переупорядочивание глав курса
+    """
+    course = crud.get_course(db, course_id=course_id)
+    if not course:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Курс не найден")
+
+    updated_course = crud.reorder_chapters(db=db, course_id=course_id, reorder=reorder_data)
+    return updated_course
+
+
+@router.put("/{course_id}/chapters/{chapter_id}/lessons/reorder", response_model=CourseChapter)
+def reorder_lessons(
+        course_id: int,
+        chapter_id: int,
+        reorder_data: ReorderRequest,
+        db: Session = Depends(get_db),
+):
+    """
+    Переупорядочивание уроков внутри главы
+    """
+    course = crud.get_course(db, course_id=course_id)
+    if not course:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Курс не найден")
+
+    chapter = crud.get_chapter(db, chapter_id=chapter_id)
+    if not chapter or chapter.course_id != course_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Глава не найдена")
+
+    updated_chapter = crud.reorder_lessons(db=db, chapter_id=chapter_id, reorder=reorder_data)
+    return updated_chapter
+
+
+# ============================================
+# Homework Admin CRUD Endpoints
+# ============================================
+
+@router.post("/{course_id}/homeworks", response_model=HomeworkOut, status_code=status.HTTP_201_CREATED)
+def create_homework(
+        course_id: int,
+        homework_data: HomeworkCreate,
+        db: Session = Depends(get_db),
+):
+    """
+    Создание домашнего задания (для главы или урока)
+    """
+    course = crud.get_course(db, course_id=course_id)
+    if not course:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Курс не найден")
+
+    homework = crud.create_homework(db=db, homework=homework_data)
+    return homework
+
+
+@router.get("/{course_id}/homeworks/{homework_id}", response_model=HomeworkOut)
+def get_homework(
+        course_id: int,
+        homework_id: int,
+        db: Session = Depends(get_db),
+):
+    """
+    Получение домашнего задания по ID
+    """
+    homework = crud.get_homework(db, homework_id=homework_id)
+    if not homework:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Домашнее задание не найдено")
+    return homework
+
+
+@router.put("/{course_id}/homeworks/{homework_id}", response_model=HomeworkOut)
+def update_homework(
+        course_id: int,
+        homework_id: int,
+        homework_data: HomeworkUpdate,
+        db: Session = Depends(get_db),
+):
+    """
+    Обновление домашнего задания
+    """
+    homework = crud.get_homework(db, homework_id=homework_id)
+    if not homework:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Домашнее задание не найдено")
+
+    updated_homework = crud.update_homework(db=db, homework_id=homework_id, homework_update=homework_data)
+    return updated_homework
+
+
+@router.delete("/{course_id}/homeworks/{homework_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_homework(
+        course_id: int,
+        homework_id: int,
+        db: Session = Depends(get_db),
+):
+    """
+    Удаление домашнего задания
+    """
+    homework = crud.get_homework(db, homework_id=homework_id)
+    if not homework:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Домашнее задание не найдено")
+
+    crud.delete_homework(db=db, homework_id=homework_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/{course_id}/homeworks/{homework_id}/submissions", response_model=List[HomeworkSubmissionOut])
+def get_homework_submissions(
+        course_id: int,
+        homework_id: int,
+        db: Session = Depends(get_db),
+):
+    """
+    Получение всех сданных работ по домашнему заданию (для преподавателя/администратора)
+    """
+    homework = crud.get_homework(db, homework_id=homework_id)
+    if not homework:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Домашнее задание не найдено")
+
+    submissions = crud.get_submissions_for_homework(db, homework_id=homework_id)
+    return submissions
+
+
+@router.post("/{course_id}/homeworks/{homework_id}/submissions/{submission_id}/grade", response_model=HomeworkSubmissionOut)
+def grade_submission(
+        course_id: int,
+        homework_id: int,
+        submission_id: int,
+        grade_data: HomeworkGrade,
+        db: Session = Depends(get_db),
+):
+    """
+    Оценка сданной работы (для преподавателя/администратора)
+    """
+    homework = crud.get_homework(db, homework_id=homework_id)
+    if not homework:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Домашнее задание не найдено")
+
+    # Use graded_by=1 as placeholder when no auth is enforced
+    graded_submission = crud.grade_submission(
+        db=db,
+        submission_id=submission_id,
+        grade=grade_data,
+        graded_by=1
+    )
+    if not graded_submission:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Работа не найдена")
+
+    return graded_submission
+
+
+# ============================================
+# Homework Student Endpoints
+# ============================================
+
+@router.post("/{course_id}/homeworks/{homework_id}/submit", response_model=HomeworkSubmissionOut, status_code=status.HTTP_201_CREATED)
+async def submit_homework(
+        course_id: int,
+        homework_id: int,
+        file: UploadFile = File(...),
+        db: Session = Depends(get_db),
+        current_user=Depends(get_current_user)
+):
+    """
+    Сдача домашнего задания студентом (загрузка файла)
+    """
+    homework = crud.get_homework(db, homework_id=homework_id)
+    if not homework:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Домашнее задание не найдено")
+
+    # Save uploaded file
+    upload_dir = os.path.join("uploads", "homeworks", str(homework_id))
+    os.makedirs(upload_dir, exist_ok=True)
+
+    allowed_extensions = ['pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png', 'zip', 'txt']
+    if not validate_file_extension(file.filename, allowed_extensions):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Недопустимый формат файла"
+        )
+
+    import uuid as _uuid
+    safe_name = f"{_uuid.uuid4()}_{file.filename}"
+    file_path = os.path.join(upload_dir, safe_name)
+    with open(file_path, "wb") as f:
+        content = await file.read()
+        f.write(content)
+
+    submission = crud.submit_homework(
+        db=db,
+        homework_id=homework_id,
+        user_id=current_user.id,
+        file_url=file_path
+    )
+    return submission
+
+
+@router.get("/{course_id}/homeworks/{homework_id}/my-submission", response_model=HomeworkSubmissionOut)
+def get_my_homework_submission(
+        course_id: int,
+        homework_id: int,
+        db: Session = Depends(get_db),
+        current_user=Depends(get_current_user)
+):
+    """
+    Получение последней сданной работы текущего пользователя
+    """
+    homework = crud.get_homework(db, homework_id=homework_id)
+    if not homework:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Домашнее задание не найдено")
+
+    submission = crud.get_latest_submission_for_user(
+        db=db,
+        homework_id=homework_id,
+        user_id=current_user.id
+    )
+    if not submission:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Сданная работа не найдена")
+
+    return submission
 
