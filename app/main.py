@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.routers import experts, auth,volunteer_auth,volunteer_admin_routes,volunteer_routes, vacancies, admin_auth_router,resume_routes,leisure_routes, events, certificates, projects, news, analytics, telegram_auth, broadcasts, moderation, email_sender, notifications, user_telegram, user_interests
 from app.routers import courses_router
 from app.database import engine, Base
+from sqlalchemy import inspect, text
 
 # Импортируем модели проектов для создания таблиц
 from app import project_models, news_models, analytics_models, telegram_otp_models, broadcast_models, moderation_notification_models, notification_models, user_telegram_models, user_interest_models
@@ -28,6 +29,22 @@ logger = logging.getLogger(__name__)
 
 # Создание таблиц в базе данных (включая новые таблицы проектов)
 Base.metadata.create_all(bind=engine)
+
+
+def ensure_course_invite_code_column():
+    inspector = inspect(engine)
+    if not inspector.has_table("courses"):
+        return
+
+    existing_columns = {column["name"] for column in inspector.get_columns("courses")}
+    if "invite_code" in existing_columns:
+        return
+
+    with engine.begin() as connection:
+        connection.execute(text("ALTER TABLE courses ADD COLUMN invite_code VARCHAR(100)"))
+
+
+ensure_course_invite_code_column()
 
 # Lifespan context manager for startup/shutdown events
 @asynccontextmanager
@@ -159,4 +176,3 @@ if __name__ == "__main__":
     uvicorn.run("app.main:app", host="0.0.0.0", port=port, reload=True)
 #Запуск:
 # uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-

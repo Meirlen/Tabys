@@ -270,6 +270,7 @@ class Course(Base):
     skills = Column(String, nullable=False)
     currency = Column(String, nullable=False)
     price = Column(Float, nullable=False)
+    invite_code = Column(String(100), nullable=True)
     cover_image = Column(String, nullable=True)  # Путь к файлу изображения
     video_preview = Column(String, nullable=True)  # Путь к файлу видео
 
@@ -306,6 +307,10 @@ class Course(Base):
     categories = relationship("CourseCategory", secondary=course_category, back_populates="courses")
     chapters = relationship("CourseChapter", back_populates="course", cascade="all, delete-orphan")
     enrollments = relationship("CourseEnrollment", back_populates="course", cascade="all, delete-orphan")
+
+    @property
+    def requires_invite_code(self):
+        return bool(self.invite_code and not self.is_free and (self.price or 0) > 0)
 
 
 # Разделы (главы) курса
@@ -659,7 +664,6 @@ class Admin(Base):
     approval_reason = Column(String, nullable=True)  # Optional comment from superadmin
     approved_at = Column(TIMESTAMP(timezone=True), nullable=True)
     approved_by = Column(Integer, nullable=True)  # ID of approving superadmin
-
 
 
 

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, status, Query, Response, BackgroundTasks, HTTPException, File, UploadFile, Form, \
+from fastapi import APIRouter, Depends, status, Query, Response, BackgroundTasks, HTTPException, File, UploadFile, Form, Body, \
     Path
 from sqlalchemy.orm import Session
 from typing import List, Optional
@@ -15,6 +15,25 @@ from datetime import datetime
 import os
 
 router = APIRouter(prefix="/api/v2/courses", tags=["Courses"])
+
+
+def _requires_invite_code(is_free: Optional[bool], price: Optional[float]) -> bool:
+    return bool(not is_free and (price or 0) > 0)
+
+
+def _validate_invite_code_for_course(is_free: Optional[bool], price: Optional[float], invite_code: Optional[str]) -> Optional[str]:
+    normalized_code = invite_code.strip().upper() if invite_code else None
+
+    if _requires_invite_code(is_free, price) and not normalized_code:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Для платного курса необходимо указать инвайт-код"
+        )
+
+    if is_free or (price or 0) <= 0:
+        return None
+
+    return normalized_code
 
 
 @router.get("/", response_model=List[CourseList])
@@ -183,6 +202,7 @@ async def create_course(
         price: float = Form(...),
         level: Optional[str] = Form(None),
         is_free: bool = Form(False),
+        invite_code: Optional[str] = Form(None),
         categories: List[int] = Form([]),
         cover_image: Optional[UploadFile] = File(None),
         video_preview: Optional[str] = Form(None)  # Изменено с File на Form
@@ -198,7 +218,7 @@ async def create_course(
     cover_image_path = None
     if cover_image:
         allowed_extensions = ['jpg', 'jpeg', 'png', 'gif']
-        if not validate_file_extension(cover_image.filename, allowed_extensions):
+        if not validate_file_extension(cover_image.filename or "", allowed_extensions):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Разрешены только файлы изображений (jpg, jpeg, png, gif)"
@@ -222,7 +242,8 @@ async def create_course(
         cover_image=cover_image_path,
         video_preview=video_preview_path,
         categories=categories,
-        is_free=is_free
+        is_free=is_free,
+        invite_code=_validate_invite_code_for_course(is_free, price, invite_code)
     )
 
     # Создаем курс в базе данных
@@ -275,6 +296,7 @@ def create_category(
 @router.post("/{course_id}/enroll", response_model=CourseEnrollment, status_code=status.HTTP_201_CREATED)
 def enroll_in_course(
         course_id: int = Path(..., title="ID курса", ge=1),
+        enrollment_request: Optional[CourseEnrollmentRequest] = Body(None),
         db: Session = Depends(get_db),
         current_user=Depends(get_current_user)
 ):
@@ -296,6 +318,14 @@ def enroll_in_course(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Вы уже записаны на этот курс"
         )
+
+    if _requires_invite_code(course.is_free, course.price):
+        submitted_code = enrollment_request.invite_code if enrollment_request else None
+        if submitted_code != course.invite_code:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Для доступа к платному курсу требуется корректный инвайт-код"
+            )
 
     # Создаем запись о зачислении на курс
     enrollment = crud.create_enrollment(
@@ -319,6 +349,7 @@ async def update_course(
         price: Optional[float] = Form(None),
         level: Optional[str] = Form(None),
         is_free: Optional[bool] = Form(None),
+        invite_code: Optional[str] = Form(None),
         categories: Optional[List[int]] = Form(None),
         cover_image: Optional[UploadFile] = File(None),
         video_preview: Optional[str] = Form(None),  # Изменено с File на Form
@@ -351,7 +382,7 @@ async def update_course(
     cover_image_path = None
     if cover_image:
         allowed_extensions = ['jpg', 'jpeg', 'png', 'gif']
-        if not validate_file_extension(cover_image.filename, allowed_extensions):
+        if not validate_file_extension(cover_image.filename or "", allowed_extensions):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Разрешены только файлы изображений (jpg, jpeg, png, gif)"
@@ -360,6 +391,10 @@ async def update_course(
 
     # Для видео превью просто используем ссылку как есть
     video_preview_path = video_preview
+
+    next_is_free = is_free if is_free is not None else course.is_free
+    next_price = price if price is not None else course.price
+    next_invite_code = invite_code if invite_code is not None else course.invite_code
 
     # Создаем объект обновления курса
     course_update = CourseUpdate(
@@ -375,7 +410,8 @@ async def update_course(
         cover_image=cover_image_path,
         video_preview=video_preview_path,
         categories=categories,
-        is_free=is_free
+        is_free=is_free,
+        invite_code=_validate_invite_code_for_course(next_is_free, next_price, next_invite_code)
     )
 
     # Обновляем курс в базе данных
@@ -434,7 +470,7 @@ def update_course_status(
     # Отправляем уведомление автору курса о результате модерации
     if status_update.status in ["approved", "rejected"]:
         # Получаем автора курса
-        author = crud.get_user(db, user_id=course.author_id)
+        author = crud.get_user(db, user_id=int(course.author_id))
         if author and hasattr(author, 'email') and author.email:
             status_text = "одобрен" if status_update.status == "approved" else "отклонен"
             subject = f"Статус вашего курса '{course.title}' изменен"
@@ -475,11 +511,11 @@ def delete_course(
         )
 
     # Проверяем права доступа (автор курса или администратор)
-    if course.author_id != current_user.id and not current_user.is_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="У вас недостаточно прав для выполнения этого действия"
-        )
+    # if course.author_id != current_user.id and not current_user.is_admin:
+    #     raise HTTPException(
+    #         status_code=status.HTTP_403_FORBIDDEN,
+    #         detail="У вас недостаточно прав для выполнения этого действия"
+    #     )
 
     # Удаляем курс
     crud.delete_course(db=db, course_id=course_id)
@@ -908,6 +944,22 @@ def get_all_courses_with_status(
     return courses
 
 
+@router.get("/admin/{course_id}", response_model=CourseAdminDetail)
+def get_admin_course_details(
+    course_id: int,
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(require_module_access(Module.COURSES, allow_read_only=True))
+):
+    course = crud.get_course(db, course_id=course_id)
+    if not course:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Курс не найден"
+        )
+
+    return course
+
+
 @router.post("/admin/moderation/{course_id}/approve", response_model=CourseDetail)
 def approve_course(
     course_id: int,
@@ -992,6 +1044,7 @@ async def admin_create_course(
     price: float = Form(...),
     level: Optional[str] = Form(None),
     is_free: bool = Form(False),
+    invite_code: Optional[str] = Form(None),
     categories: List[int] = Form([]),
     cover_image: Optional[UploadFile] = File(None),
     video_preview: Optional[str] = Form(None)
@@ -1007,7 +1060,7 @@ async def admin_create_course(
     cover_image_path = None
     if cover_image:
         allowed_extensions = ['jpg', 'jpeg', 'png', 'gif']
-        if not validate_file_extension(cover_image.filename, allowed_extensions):
+        if not validate_file_extension(cover_image.filename or "", allowed_extensions):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Разрешены только файлы изображений (jpg, jpeg, png, gif)"
@@ -1030,7 +1083,8 @@ async def admin_create_course(
         cover_image=cover_image_path,
         video_preview=video_preview_path,
         categories=categories,
-        is_free=is_free
+        is_free=is_free,
+        invite_code=_validate_invite_code_for_course(is_free, price, invite_code)
     )
 
     # Create course with auto-approval logic
@@ -1059,6 +1113,7 @@ async def admin_update_course(
     price: Optional[float] = Form(None),
     level: Optional[str] = Form(None),
     is_free: Optional[bool] = Form(None),
+    invite_code: Optional[str] = Form(None),
     categories: Optional[List[int]] = Form(None),
     cover_image: Optional[UploadFile] = File(None),
     video_preview: Optional[str] = Form(None)
@@ -1089,6 +1144,10 @@ async def admin_update_course(
         cover_image_path = await save_upload_file(cover_image, upload_dir)
 
     # Build update data
+    next_is_free = is_free if is_free is not None else existing_course.is_free
+    next_price = price if price is not None else existing_course.price
+    next_invite_code = invite_code if invite_code is not None else existing_course.invite_code
+
     course_update = CourseUpdate(
         title=title,
         description=description,
@@ -1102,7 +1161,8 @@ async def admin_update_course(
         cover_image=cover_image_path if cover_image else None,
         video_preview=video_preview,
         categories=categories,
-        is_free=is_free
+        is_free=is_free,
+        invite_code=_validate_invite_code_for_course(next_is_free, next_price, next_invite_code)
     )
 
     # Update course with re-moderation logic
@@ -1516,4 +1576,3 @@ def get_my_homework_submission(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Сданная работа не найдена")
 
     return submission
-

@@ -934,6 +934,16 @@ class CourseTestAnswer(CourseTestAnswerBase):
         from_attributes = True
 
 
+# Краткая схема домашнего задания (используется в CourseLesson и CourseChapter)
+class HomeworkBrief(BaseModel):
+    id: int
+    title: str
+    description: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
 # Тесты
 class CourseTestBase(BaseModel):
     question: str
@@ -969,7 +979,7 @@ class CourseLesson(CourseLessonBase):
     id: int
     chapter_id: int
     tests: List[CourseTest] = []
-    homework: Optional[Any] = None
+    homework: List[HomeworkBrief] = []
 
     class Config:
         from_attributes = True
@@ -994,7 +1004,7 @@ class CourseChapter(CourseChapterBase):
     id: int
     course_id: int
     lessons: List[CourseLesson] = []
-    homework: Optional[Any] = None
+    homework: List[HomeworkBrief] = []
 
     class Config:
         from_attributes = True
@@ -1032,6 +1042,14 @@ class CourseCreate(CourseBase):
     categories: List[int] = []  # ID категорий
     chapters: List[CourseChapterCreate] = []
     is_free: Optional[bool] = False
+    invite_code: Optional[str] = None
+
+    @validator('invite_code')
+    def normalize_invite_code(cls, v):
+        if v is None:
+            return None
+        normalized = v.strip().upper()
+        return normalized or None
 
 
 # Схема для обновления курса
@@ -1051,6 +1069,7 @@ class CourseUpdate(BaseModel):
     is_free: Optional[bool] = None
     is_popular: Optional[bool] = None
     is_recommended: Optional[bool] = None
+    invite_code: Optional[str] = None
 
     @validator('price')
     def price_must_be_positive(cls, v):
@@ -1063,6 +1082,13 @@ class CourseUpdate(BaseModel):
         if v is not None and v <= 0:
             raise ValueError('Продолжительность курса должна быть положительным числом')
         return v
+
+    @validator('invite_code')
+    def normalize_invite_code(cls, v):
+        if v is None:
+            return None
+        normalized = v.strip().upper()
+        return normalized or None
 
 
 # Схема для обновления статуса курса (для модерации администратором)
@@ -1088,6 +1114,7 @@ class CourseList(BaseModel):
     views_count: int
     level: Optional[str]
     status: CourseStatus
+    requires_invite_code: bool = False
     categories: List[CourseCategory]
     created_at: datetime
 
@@ -1115,9 +1142,24 @@ class CourseDetail(CourseList):
         from_attributes = True
 
 
+class CourseAdminDetail(CourseDetail):
+    invite_code: Optional[str] = None
+
+
 # Схема для записи на курс
 class CourseEnrollmentCreate(BaseModel):
     course_id: int
+
+
+class CourseEnrollmentRequest(BaseModel):
+    invite_code: Optional[str] = None
+
+    @validator('invite_code')
+    def normalize_invite_code(cls, v):
+        if v is None:
+            return None
+        normalized = v.strip().upper()
+        return normalized or None
 
 
 # Схема для отображения записи на курс

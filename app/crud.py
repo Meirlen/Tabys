@@ -1098,39 +1098,39 @@ def get_category(db: Session, category_id: int) -> Optional[CourseCategory]:
 
 def get_courses(db: Session, skip: int = 0, limit: int = 100) -> List[Course]:
     """Получение списка всех доступных курсов"""
-    return db.query(Course).filter(Course.status == "approved").offset(skip).limit(limit).all()
+    return db.query(Course).filter(Course.moderation_status == "approved").offset(skip).limit(limit).all()
 
 
 def get_recommended_courses(db: Session, skip: int = 0, limit: int = 10) -> List[Course]:
     """Получение списка рекомендуемых курсов"""
     return db.query(Course).filter(
-        and_(Course.is_recommended == True, Course.status == "approved")
+        and_(Course.is_recommended == True, Course.moderation_status == "approved")
     ).offset(skip).limit(limit).all()
 
 
 def get_popular_courses(db: Session, skip: int = 0, limit: int = 10) -> List[Course]:
     """Получение списка популярных курсов"""
     return db.query(Course).filter(
-        and_(Course.is_popular == True, Course.status == "approved")
+        and_(Course.is_popular == True, Course.moderation_status == "approved")
     ).offset(skip).limit(limit).all()
 
 
 def get_most_searched_courses(db: Session, skip: int = 0, limit: int = 10) -> List[Course]:
     """Получение списка часто ищемых курсов (по количеству просмотров)"""
-    return db.query(Course).filter(Course.status == "approved").order_by(desc(Course.views_count)).offset(skip).limit(
+    return db.query(Course).filter(Course.moderation_status == "approved").order_by(desc(Course.views_count)).offset(skip).limit(
         limit).all()
 
 
 def get_free_courses(db: Session, skip: int = 0, limit: int = 10) -> List[Course]:
     """Получение списка бесплатных курсов"""
     return db.query(Course).filter(
-        and_(Course.is_free == True, Course.status == "approved")
+        and_(Course.is_free == True, Course.moderation_status == "approved")
     ).offset(skip).limit(limit).all()
 
 
 def filter_courses(db: Session, filters: CourseFilter, skip: int = 0, limit: int = 100) -> List[Course]:
     """Фильтрация курсов по различным параметрам"""
-    query = db.query(Course).filter(Course.status == "approved")
+    query = db.query(Course).filter(Course.moderation_status == "approved")
 
     # Применяем фильтры
     if filters.category_id is not None:
@@ -1192,6 +1192,7 @@ def create_course(db: Session, course: CourseCreate, author_id: int, admin_role:
         skills=course.skills,
         currency=course.currency,
         price=course.price,
+        invite_code=course.invite_code,
         level=course.level,
         cover_image=course.cover_image,
         video_preview=course.video_preview,
@@ -1244,7 +1245,7 @@ def update_course(db: Session, course_id: int, course_update: CourseUpdate, admi
     update_data = course_update.dict(exclude_unset=True)
 
     # Define major fields that trigger re-moderation
-    major_fields = ['title', 'description', 'course_url', 'price', 'cover_image']
+    major_fields = ['title', 'description', 'course_url', 'price', 'cover_image', 'invite_code', 'is_free']
     major_update = any(field in update_data for field in major_fields)
 
     # Check if admin bypasses moderation
