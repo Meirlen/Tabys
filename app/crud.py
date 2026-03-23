@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, and_
 from . import models, schemas,resume_models
+from . import tech_task_models, tech_task_schemas
 from typing import List, Optional
 from datetime import datetime
 from fastapi import HTTPException, status
@@ -2125,3 +2126,241 @@ def get_course(db: Session, course_id: int) -> Optional[Course]:
     Получение курса по ID
     """
     return db.query(Course).filter(Course.id == course_id).first()
+
+
+# ── Tech Tasks CRUD ────────────────────────────────────────────────────────────
+
+def get_tech_tasks_filtered(
+    db: Session,
+    skip: int = 0,
+    limit: int = 20,
+    status: Optional[str] = None,
+    category: Optional[str] = None,
+    preferred_technology: Optional[str] = None,
+    field_of_application: Optional[str] = None,
+    keyword: Optional[str] = None,
+    lang: Optional[str] = "ru",
+):
+    query = db.query(tech_task_models.TechTask).filter(
+        tech_task_models.TechTask.is_active == True
+    )
+    if status:
+        query = query.filter(tech_task_models.TechTask.status == status)
+    if category:
+        query = query.filter(tech_task_models.TechTask.category == category)
+    if field_of_application:
+        query = query.filter(tech_task_models.TechTask.field_of_application == field_of_application)
+    if keyword:
+        if lang == "kz":
+            query = query.filter(
+                or_(
+                    tech_task_models.TechTask.title_kz.ilike(f"%{keyword}%"),
+                    tech_task_models.TechTask.description_kz.ilike(f"%{keyword}%"),
+                )
+            )
+        else:
+            query = query.filter(
+                or_(
+                    tech_task_models.TechTask.title_ru.ilike(f"%{keyword}%"),
+                    tech_task_models.TechTask.description_ru.ilike(f"%{keyword}%"),
+                )
+            )
+    total = query.count()
+    tasks = query.order_by(tech_task_models.TechTask.created_at.desc()).offset(skip).limit(limit).all()
+
+    result = []
+    for task in tasks:
+        solutions_count = db.query(tech_task_models.TechTaskSolution).filter(
+            tech_task_models.TechTaskSolution.tech_task_id == task.id
+        ).count()
+        task_dict = {c.name: getattr(task, c.name) for c in task.__table__.columns}
+        task_dict["solutions_count"] = solutions_count
+        result.append(task_dict)
+
+    return {"tasks": result, "total": total}
+
+
+def get_tech_task(db: Session, task_id: int):
+    task = db.query(tech_task_models.TechTask).filter(
+        tech_task_models.TechTask.id == task_id,
+        tech_task_models.TechTask.is_active == True,
+    ).first()
+    if not task:
+        return None
+    solutions_count = db.query(tech_task_models.TechTaskSolution).filter(
+        tech_task_models.TechTaskSolution.tech_task_id == task_id
+    ).count()
+    task_dict = {c.name: getattr(task, c.name) for c in task.__table__.columns}
+    task_dict["solutions_count"] = solutions_count
+    task_dict["files"] = get_task_files(db, task_id)
+    return task_dict
+
+
+def get_tech_task_admin(db: Session, task_id: int):
+    """Get task without is_active filter (admin use)."""
+    return db.query(tech_task_models.TechTask).filter(
+        tech_task_models.TechTask.id == task_id
+    ).first()
+
+
+def get_user_tech_tasks(db: Session, user_id: int, skip: int = 0, limit: int = 20):
+    tasks = db.query(tech_task_models.TechTask).filter(
+        tech_task_models.TechTask.user_id == user_id,
+        tech_task_models.TechTask.is_active == True,
+    ).order_by(tech_task_models.TechTask.created_at.desc()).offset(skip).limit(limit).all()
+
+    result = []
+    for task in tasks:
+        solutions_count = db.query(tech_task_models.TechTaskSolution).filter(
+            tech_task_models.TechTaskSolution.tech_task_id == task.id
+        ).count()
+        task_dict = {c.name: getattr(task, c.name) for c in task.__table__.columns}
+        task_dict["solutions_count"] = solutions_count
+        result.append(task_dict)
+    return result
+
+
+def create_tech_task(db: Session, task_data: tech_task_schemas.TechTaskCreate, user_id: int):
+    task = tech_task_models.TechTask(
+        **task_data.dict(),
+        user_id=user_id,
+        status="collecting_offers",
+        is_active=True,
+        created_at=datetime.utcnow(),
+    )
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+    return task
+
+
+def update_tech_task(db: Session, task_id: int, task_data: tech_task_schemas.TechTaskUpdate):
+    task = db.query(tech_task_models.TechTask).filter(
+        tech_task_models.TechTask.id == task_id
+    ).first()
+    if not task:
+        return None
+    update_fields = task_data.dict(exclude_unset=True)
+    for key, value in update_fields.items():
+        setattr(task, key, value)
+    task.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(task)
+    return task
+
+
+def delete_tech_task(db: Session, task_id: int):
+    task = db.query(tech_task_models.TechTask).filter(
+        tech_task_models.TechTask.id == task_id
+    ).first()
+    if not task:
+        return False
+    task.is_active = False
+    task.updated_at = datetime.utcnow()
+    db.commit()
+    return True
+
+
+# ── Solutions CRUD ─────────────────────────────────────────────────────────────
+
+def get_tech_task_solutions(db: Session, task_id: int, skip: int = 0, limit: int = 50):
+    solutions = db.query(tech_task_models.TechTaskSolution).filter(
+        tech_task_models.TechTaskSolution.tech_task_id == task_id
+    ).order_by(tech_task_models.TechTaskSolution.created_at.desc()).offset(skip).limit(limit).all()
+
+    result = []
+    for sol in solutions:
+        files = db.query(tech_task_models.TechTaskSolutionFile).filter(
+            tech_task_models.TechTaskSolutionFile.solution_id == sol.id
+        ).all()
+        sol_dict = {c.name: getattr(sol, c.name) for c in sol.__table__.columns}
+        sol_dict["files"] = [
+            {c.name: getattr(f, c.name) for c in f.__table__.columns}
+            for f in files
+        ]
+        result.append(sol_dict)
+    return result
+
+
+def get_user_solutions(db: Session, user_id: int, skip: int = 0, limit: int = 20):
+    solutions = db.query(tech_task_models.TechTaskSolution).filter(
+        tech_task_models.TechTaskSolution.user_id == user_id
+    ).order_by(tech_task_models.TechTaskSolution.created_at.desc()).offset(skip).limit(limit).all()
+
+    result = []
+    for sol in solutions:
+        files = db.query(tech_task_models.TechTaskSolutionFile).filter(
+            tech_task_models.TechTaskSolutionFile.solution_id == sol.id
+        ).all()
+        sol_dict = {c.name: getattr(sol, c.name) for c in sol.__table__.columns}
+        sol_dict["files"] = [
+            {c.name: getattr(f, c.name) for c in f.__table__.columns}
+            for f in files
+        ]
+        result.append(sol_dict)
+    return result
+
+
+def create_tech_task_solution(
+    db: Session,
+    solution_data: tech_task_schemas.TechTaskSolutionCreate,
+    task_id: int,
+    user_id: int,
+):
+    solution = tech_task_models.TechTaskSolution(
+        **solution_data.dict(),
+        tech_task_id=task_id,
+        user_id=user_id,
+        status="pending",
+        created_at=datetime.utcnow(),
+    )
+    db.add(solution)
+    db.commit()
+    db.refresh(solution)
+    return solution
+
+
+def update_solution_status(db: Session, solution_id: int, status: str):
+    solution = db.query(tech_task_models.TechTaskSolution).filter(
+        tech_task_models.TechTaskSolution.id == solution_id
+    ).first()
+    if not solution:
+        return None
+    solution.status = status
+    solution.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(solution)
+    return solution
+
+
+def create_solution_file(db: Session, solution_id: int, file_path: str, original_name: str):
+    file_record = tech_task_models.TechTaskSolutionFile(
+        solution_id=solution_id,
+        file_path=file_path,
+        original_name=original_name,
+        created_at=datetime.utcnow(),
+    )
+    db.add(file_record)
+    db.commit()
+    db.refresh(file_record)
+    return file_record
+
+
+def create_task_file(db: Session, task_id: int, file_path: str, original_name: str):
+    file_record = tech_task_models.TechTaskFile(
+        task_id=task_id,
+        file_path=file_path,
+        original_name=original_name,
+        created_at=datetime.utcnow(),
+    )
+    db.add(file_record)
+    db.commit()
+    db.refresh(file_record)
+    return file_record
+
+
+def get_task_files(db: Session, task_id: int):
+    files = db.query(tech_task_models.TechTaskFile).filter(
+        tech_task_models.TechTaskFile.task_id == task_id
+    ).order_by(tech_task_models.TechTaskFile.created_at.asc()).all()
+    return [{"id": f.id, "task_id": f.task_id, "file_path": f.file_path, "original_name": f.original_name, "created_at": f.created_at} for f in files]

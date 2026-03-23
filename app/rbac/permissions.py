@@ -14,6 +14,7 @@ class Module:
     CERTIFICATES = "certificates"
     EXPERTS = "experts"
     RESUMES = "resumes"
+    TECH_TASKS = "tech_tasks"
 
 
 # Permission types
@@ -57,6 +58,7 @@ ROLE_PERMISSIONS: Dict[str, Dict[str, Set[str]]] = {
         Module.CERTIFICATES: {Permission.READ},
         Module.EXPERTS: {Permission.READ},
         Module.RESUMES: {Permission.READ},
+        Module.TECH_TASKS: {Permission.READ},
     },
 
     Role.ADMINISTRATOR: {
@@ -71,6 +73,7 @@ ROLE_PERMISSIONS: Dict[str, Dict[str, Set[str]]] = {
         Module.CERTIFICATES: {Permission.READ, Permission.CREATE, Permission.UPDATE, Permission.DELETE},
         Module.EXPERTS: {Permission.READ, Permission.CREATE, Permission.UPDATE, Permission.DELETE},
         Module.RESUMES: {Permission.READ, Permission.CREATE, Permission.UPDATE, Permission.DELETE},
+        Module.TECH_TASKS: {Permission.READ, Permission.CREATE, Permission.UPDATE, Permission.DELETE},
     },
 
     Role.SUPER_ADMIN: {
@@ -86,6 +89,7 @@ ROLE_PERMISSIONS: Dict[str, Dict[str, Set[str]]] = {
         Module.CERTIFICATES: {Permission.READ, Permission.CREATE, Permission.UPDATE, Permission.DELETE},
         Module.EXPERTS: {Permission.READ, Permission.CREATE, Permission.UPDATE, Permission.DELETE},
         Module.RESUMES: {Permission.READ, Permission.CREATE, Permission.UPDATE, Permission.DELETE},
+        Module.TECH_TASKS: {Permission.READ, Permission.CREATE, Permission.UPDATE, Permission.DELETE},
     },
 }
 
